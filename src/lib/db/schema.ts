@@ -144,6 +144,16 @@ export const adminNotificationSmtpConfig = pgTable("admin_notification_smtp_conf
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
 });
 
+export const adminSetting = pgTable("admin_setting", {
+  id: text("id").primaryKey(),
+  notificationFallbackEnabled: boolean("notification_fallback_enabled").notNull().default(false),
+  dailyEmailLimit: integer("daily_email_limit").notNull().default(10),
+  emailRetryCount: integer("email_retry_count").notNull().default(2),
+  arxivMaxResultsPerCategory: integer("arxiv_max_results_per_category").notNull().default(100),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+});
+
 export const paper = pgTable(
   "paper",
   {
@@ -158,7 +168,8 @@ export const paper = pgTable(
     pdfUrl: text("pdf_url"),
     publishedAt: timestamp("published_at", { withTimezone: true }).notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
-    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow()
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    pdfText: text("pdf_text")
   },
   (table) => ({
     publishedIdx: index("paper_published_idx").on(table.publishedAt),
