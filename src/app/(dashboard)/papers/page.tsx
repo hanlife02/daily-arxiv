@@ -1,22 +1,28 @@
+import { desc, eq } from "drizzle-orm";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { requireUser } from "@/lib/app/authz";
+import { db } from "@/lib/db";
+import { paper, userPaperState, userPreference } from "@/lib/db/schema";
 
-const samplePapers = [
-  {
-    id: "2501.12345",
-    title: "A Minimal Baseline for Scientific Paper Recommendation",
-    categories: "cs.CL, stat.ML",
-    status: "待总结"
-  },
-  {
-    id: "2501.12346",
-    title: "Efficient Retrieval Augmentation for Research Agents",
-    categories: "cs.AI",
-    status: "未收藏"
-  }
-];
+export const dynamic = "force-dynamic";
 
-export default function PapersPage() {
+export default async function PapersPage() {
+  const user = await requireUser();
+  const preference = await db.query.userPreference.findFirst({
+    where: eq(userPreference.userId, user.id)
+  });
+  const rows = preference?.categories.length
+    ? await db.select().from(paper).orderBy(desc(paper.publishedAt)).limit(200)
+    : [];
+  const states = await db.query.userPaperState.findMany({
+    where: eq(userPaperState.userId, user.id)
+  });
+  const stateByPaper = new Map(states.map((state) => [state.paperId, state]));
+  const papers = rows
+    .filter((item) => item.categories.some((category) => preference?.categories.includes(category)))
+    .slice(0, 50);
+
   return (
     <div className="space-y-6">
       <div>
@@ -40,20 +46,31 @@ export default function PapersPage() {
                 </tr>
               </thead>
               <tbody>
-                {samplePapers.map((paper) => (
-                  <tr key={paper.id} className="border-t border-border/40">
-                    <td className="py-3 pr-4 font-mono">{paper.id}</td>
-                    <td className="py-3 pr-4">{paper.title}</td>
-                    <td className="py-3 pr-4 text-muted-foreground">{paper.categories}</td>
-                    <td className="py-3 pr-4">{paper.status}</td>
+                {papers.map((item) => (
+                  <tr key={item.arxivId} className="border-t border-border/40">
+                    <td className="py-3 pr-4 font-mono">{item.arxivId}</td>
+                    <td className="py-3 pr-4">
+                      <a className="hover:underline" href={item.arxivUrl} target="_blank" rel="noreferrer">{item.title}</a>
+                    </td>
+                    <td className="py-3 pr-4 text-muted-foreground">{item.categories.join(", ")}</td>
+                    <td className="py-3 pr-4">{stateByPaper.get(item.arxivId)?.favorited ? "已收藏" : "未收藏"}</td>
                     <td className="py-3 text-right">
-                      <Button variant="secondary">总结</Button>
+                      <form action="/api/papers/favorite" method="post">
+                        <input type="hidden" name="paperId" value={item.arxivId} />
+                        <input type="hidden" name="favorited" value={stateByPaper.get(item.arxivId)?.favorited ? "false" : "true"} />
+                        <Button type="submit" variant="secondary">
+                          {stateByPaper.get(item.arxivId)?.favorited ? "取消收藏" : "收藏"}
+                        </Button>
+                      </form>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          {papers.length === 0 ? (
+            <p className="mt-4 text-sm text-muted-foreground">暂无论文。请先保存订阅，并由管理员触发抓取任务。</p>
+          ) : null}
         </CardContent>
       </Card>
     </div>
