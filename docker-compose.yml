@@ -11,7 +11,7 @@ services:
       - HTTP_PROXY=${HTTP_PROXY:-}
       - HTTPS_PROXY=${HTTPS_PROXY:-}
     ports:
-      - "3000:3000"
+      - "3211:3000"
     volumes:
       - ./data/app:/app/data/app
 
