@@ -1,9 +1,9 @@
 import { desc, eq } from "drizzle-orm";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/lib/app/authz";
 import { db } from "@/lib/db";
 import { paper, userPaperState, userPreference } from "@/lib/db/schema";
+import { PaperTable } from "@/components/arxiv/paper-table";
 
 export const dynamic = "force-dynamic";
 
@@ -34,40 +34,7 @@ export default async function PapersPage() {
           <CardTitle>论文列表</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-left text-sm">
-              <thead className="text-muted-foreground">
-                <tr>
-                  <th className="pb-3 pr-4 font-medium">arXiv ID</th>
-                  <th className="pb-3 pr-4 font-medium">标题</th>
-                  <th className="pb-3 pr-4 font-medium">板块</th>
-                  <th className="pb-3 pr-4 font-medium">状态</th>
-                  <th className="pb-3 text-right font-medium">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {papers.map((item) => (
-                  <tr key={item.arxivId} className="border-t border-border/40">
-                    <td className="py-3 pr-4 font-mono">{item.arxivId}</td>
-                    <td className="py-3 pr-4">
-                      <a className="hover:underline" href={item.arxivUrl} target="_blank" rel="noreferrer">{item.title}</a>
-                    </td>
-                    <td className="py-3 pr-4 text-muted-foreground">{item.categories.join(", ")}</td>
-                    <td className="py-3 pr-4">{stateByPaper.get(item.arxivId)?.favorited ? "已收藏" : "未收藏"}</td>
-                    <td className="py-3 text-right">
-                      <form action="/api/papers/favorite" method="post">
-                        <input type="hidden" name="paperId" value={item.arxivId} />
-                        <input type="hidden" name="favorited" value={stateByPaper.get(item.arxivId)?.favorited ? "false" : "true"} />
-                        <Button type="submit" variant="secondary">
-                          {stateByPaper.get(item.arxivId)?.favorited ? "取消收藏" : "收藏"}
-                        </Button>
-                      </form>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <PaperTable papers={papers} states={stateByPaper} />
           {papers.length === 0 ? (
             <p className="mt-4 text-sm text-muted-foreground">暂无论文。请先保存订阅，并由管理员触发抓取任务。</p>
           ) : null}
