@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/app/authz";
 import { db } from "@/lib/db";
 import { paper, userPaperState, userPreference } from "@/lib/db/schema";
 import { PaperTable } from "@/components/arxiv/paper-table";
+import { CrawlButton } from "@/components/arxiv/crawl-button";
 
 export const dynamic = "force-dynamic";
 
@@ -30,13 +31,14 @@ export default async function PapersPage() {
         <p className="mt-1 text-sm text-muted-foreground">按用户 categories 从全局论文池筛选，支持收藏和手动总结。</p>
       </div>
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>论文列表</CardTitle>
+          <CrawlButton />
         </CardHeader>
         <CardContent>
           <PaperTable papers={papers} states={stateByPaper} />
           {papers.length === 0 ? (
-            <p className="mt-4 text-sm text-muted-foreground">暂无论文。请先保存订阅，并由管理员触发抓取任务。</p>
+            <p className="mt-4 text-sm text-muted-foreground">暂无论文。请先保存订阅，然后点击「手动抓取」获取最新论文。</p>
           ) : null}
         </CardContent>
       </Card>

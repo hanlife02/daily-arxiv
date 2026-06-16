@@ -4,6 +4,7 @@ import Link from "next/link";
 import { BookOpen, ExternalLink, Star } from "lucide-react";
 import type { ScoredPaper } from "@/lib/reports/scoring";
 import { cn } from "@/lib/utils";
+import { CrawlButton } from "@/components/arxiv/crawl-button";
 
 type Props = {
   papers: ScoredPaper[];
@@ -26,7 +27,10 @@ export function PaperList({ papers, selectedPaperId, onSelect, paperStates, tota
             </Link>
           </>
         ) : totalPaperCount === 0 ? (
-          <p className="text-sm text-muted-foreground">暂无论文数据，请等待管理员触发抓取任务。</p>
+          <>
+            <p className="text-sm text-muted-foreground">暂无论文数据</p>
+            <CrawlButton />
+          </>
         ) : (
           <p className="text-sm text-muted-foreground">
             当前订阅板块没有匹配的论文（共 {totalPaperCount} 篇）。
