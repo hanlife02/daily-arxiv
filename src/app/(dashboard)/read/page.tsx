@@ -68,5 +68,13 @@ export default async function ReadPage() {
 
   const llmConfig = await getDecryptedLlmConfig(user.id);
 
-  return <PaperReader papers={scoredPapers} paperStates={stateMap} llmConfigured={!!llmConfig} />;
+  return (
+    <PaperReader
+      papers={scoredPapers}
+      paperStates={stateMap}
+      llmConfigured={!!llmConfig}
+      totalPaperCount={paperRecords.length}
+      hasCategories={!!(preference && preference.categories.length > 0)}
+    />
+  );
 }

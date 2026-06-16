@@ -1,6 +1,7 @@
 "use client";
 
-import { BookOpen, Star } from "lucide-react";
+import Link from "next/link";
+import { BookOpen, ExternalLink, Star } from "lucide-react";
 import type { ScoredPaper } from "@/lib/reports/scoring";
 import { cn } from "@/lib/utils";
 
@@ -9,13 +10,32 @@ type Props = {
   selectedPaperId: string | null;
   onSelect: (arxivId: string) => void;
   paperStates: Record<string, { favorited: boolean; read: boolean }>;
+  totalPaperCount: number;
+  hasCategories: boolean;
 };
 
-export function PaperList({ papers, selectedPaperId, onSelect, paperStates }: Props) {
+export function PaperList({ papers, selectedPaperId, onSelect, paperStates, totalPaperCount, hasCategories }: Props) {
   if (papers.length === 0) {
     return (
-      <div className="neu-card flex h-full items-center justify-center p-8">
-        <p className="text-muted-foreground">暂无匹配论文，请检查订阅设置。</p>
+      <div className="neu-card flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
+        {!hasCategories ? (
+          <>
+            <p className="text-sm text-muted-foreground">尚未配置订阅板块</p>
+            <Link href="/settings" className="inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline">
+              前往设置 <ExternalLink className="h-3 w-3" />
+            </Link>
+          </>
+        ) : totalPaperCount === 0 ? (
+          <p className="text-sm text-muted-foreground">暂无论文数据，请等待管理员触发抓取任务。</p>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            当前订阅板块没有匹配的论文（共 {totalPaperCount} 篇）。
+            <br />
+            <Link href="/settings" className="inline-flex items-center gap-1 font-medium text-accent hover:underline">
+              检查订阅设置 <ExternalLink className="h-3 w-3" />
+            </Link>
+          </p>
+        )}
       </div>
     );
   }

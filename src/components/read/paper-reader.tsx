@@ -9,9 +9,11 @@ type Props = {
   papers: ScoredPaper[];
   paperStates: Record<string, { favorited: boolean; read: boolean }>;
   llmConfigured: boolean;
+  totalPaperCount: number;
+  hasCategories: boolean;
 };
 
-export function PaperReader({ papers, paperStates, llmConfigured }: Props) {
+export function PaperReader({ papers, paperStates, llmConfigured, totalPaperCount, hasCategories }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(
     papers.length > 0 ? papers[0].arxivId : null
   );
@@ -36,6 +38,8 @@ export function PaperReader({ papers, paperStates, llmConfigured }: Props) {
           selectedPaperId={selectedId}
           onSelect={handleSelect}
           paperStates={paperStates}
+          totalPaperCount={totalPaperCount}
+          hasCategories={hasCategories}
         />
       </div>
 
