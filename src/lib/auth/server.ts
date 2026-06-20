@@ -2,22 +2,11 @@ import { betterAuth } from "better-auth";
 import { APIError } from "better-auth/api";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
-import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
+import { getAllowedRegistrationDomains } from "@/lib/app/registration";
 import { sendAuthEmail } from "@/lib/email/auth";
-import { getEmailDomain, isEmailAllowed } from "@/lib/users/registration";
-
-async function getAllowedDomains() {
-  const rows = await db
-    .select({ domain: schema.allowedEmailDomain.domain })
-    .from(schema.allowedEmailDomain)
-    .where(eq(schema.allowedEmailDomain.enabled, true));
-  if (rows.length > 0) return rows.map((row) => row.domain);
-
-  const adminEmail = process.env.ADMIN_EMAIL;
-  return adminEmail ? [getEmailDomain(adminEmail)] : [];
-}
+import { isEmailAllowed } from "@/lib/users/registration";
 
 export const auth = betterAuth({
   database: drizzleAdapter(db, {
@@ -26,6 +15,9 @@ export const auth = betterAuth({
   }),
   secret: process.env.BETTER_AUTH_SECRET,
   baseURL: process.env.BETTER_AUTH_URL ?? process.env.APP_URL,
+  rateLimit: {
+    enabled: process.env.BETTER_AUTH_RATE_LIMIT_ENABLED === "false" ? false : undefined
+  },
   emailAndPassword: {
     enabled: true,
     requireEmailVerification: true
@@ -45,8 +37,8 @@ export const auth = betterAuth({
       create: {
         before: async (user) => {
           const email = typeof user.email === "string" ? user.email : "";
-          const allowedDomains = await getAllowedDomains();
-          if (allowedDomains.length > 0 && !isEmailAllowed(email, allowedDomains)) {
+          const allowedDomains = await getAllowedRegistrationDomains();
+          if (!isEmailAllowed(email, allowedDomains)) {
             throw new APIError("FORBIDDEN", {
               message: "该邮箱后缀不允许注册"
             });

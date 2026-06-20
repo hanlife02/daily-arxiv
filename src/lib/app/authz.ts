@@ -4,6 +4,9 @@ import { eq } from "drizzle-orm";
 import { auth } from "@/lib/auth/server";
 import { db } from "@/lib/db";
 import { user as userTable } from "@/lib/db/schema";
+import { assertActiveDatabaseUser } from "@/lib/app/authz-core";
+
+export { assertActiveDatabaseUser } from "@/lib/app/authz-core";
 
 export async function getCurrentSession() {
   return auth.api.getSession({
@@ -24,7 +27,7 @@ export async function requireAppUser() {
   const fullUser = await db.query.user.findFirst({
     where: eq(userTable.id, sessionUser.id)
   });
-  if (!fullUser || fullUser.disabled) {
+  if (!fullUser || fullUser.disabled || !fullUser.emailVerified) {
     redirect("/login");
   }
   return fullUser;
@@ -43,15 +46,15 @@ export async function requireApiUser() {
   if (!session?.user) {
     throw new Response("Unauthorized", { status: 401 });
   }
-  return session.user;
+  const fullUser = await db.query.user.findFirst({
+    where: eq(userTable.id, session.user.id)
+  });
+  return assertActiveDatabaseUser(fullUser);
 }
 
 export async function requireApiAdmin() {
-  const sessionUser = await requireApiUser();
-  const fullUser = await db.query.user.findFirst({
-    where: eq(userTable.id, sessionUser.id)
-  });
-  if (fullUser?.role !== "admin") {
+  const fullUser = await requireApiUser();
+  if (fullUser.role !== "admin") {
     throw new Response("Forbidden", { status: 403 });
   }
   return fullUser;

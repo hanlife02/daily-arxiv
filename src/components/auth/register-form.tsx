@@ -3,13 +3,26 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 
-export function RegisterForm() {
+type RegisterFormProps = {
+  allowedDomains: string[];
+};
+
+function formatAllowedDomains(domains: string[]) {
+  if (domains.length === 0) return "";
+  const shown = domains.slice(0, 5).map((domain) => `@${domain}`).join("、");
+  return domains.length > 5 ? `${shown} 等 ${domains.length} 个后缀` : shown;
+}
+
+export function RegisterForm({ allowedDomains }: RegisterFormProps) {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
+  const registrationEnabled = allowedDomains.length > 0;
+  const allowedDomainText = formatAllowedDomains(allowedDomains);
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!registrationEnabled) return;
     setError("");
     setSuccess("");
     setLoading(true);
@@ -40,12 +53,31 @@ export function RegisterForm() {
 
   return (
     <form onSubmit={onSubmit} className="grid gap-3">
-      <input className="neu-input h-11 px-4 text-sm" name="name" placeholder="姓名" required />
-      <input className="neu-input h-11 px-4 text-sm" name="email" type="email" placeholder="邮箱" required />
-      <input className="neu-input h-11 px-4 text-sm" name="password" type="password" placeholder="密码" required />
+      <input className="neu-input h-11 px-4 text-sm" name="name" placeholder="姓名" required disabled={!registrationEnabled || loading} />
+      <div className="grid gap-1.5">
+        <input
+          className="neu-input h-11 px-4 text-sm"
+          name="email"
+          type="email"
+          placeholder={allowedDomains[0] ? `邮箱，例如 name@${allowedDomains[0]}` : "邮箱"}
+          required
+          disabled={!registrationEnabled || loading}
+        />
+        <p className="text-xs text-muted-foreground">
+          {registrationEnabled ? `允许注册后缀：${allowedDomainText}` : "当前未开放注册，请联系管理员配置邮箱后缀。"}
+        </p>
+      </div>
+      <input
+        className="neu-input h-11 px-4 text-sm"
+        name="password"
+        type="password"
+        placeholder="密码"
+        required
+        disabled={!registrationEnabled || loading}
+      />
       {error ? <p className="text-sm text-red-500">{error}</p> : null}
       {success ? <p className="text-sm text-muted-foreground">{success}</p> : null}
-      <Button type="submit" className="mt-1" disabled={loading}>
+      <Button type="submit" className="mt-1" disabled={!registrationEnabled || loading}>
         {loading ? "发送中" : "注册并发送验证邮件"}
       </Button>
     </form>

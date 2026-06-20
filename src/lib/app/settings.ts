@@ -4,8 +4,11 @@ import { adminNotificationSmtpConfig, adminSetting, userLlmConfig, userPreferenc
 import { validateArxivCategories } from "@/lib/arxiv/categories";
 import { decryptSecret, encryptSecret } from "@/lib/security/crypto";
 import type { LlmConfig } from "@/lib/llm/chat-completions";
-import { DEFAULT_LIMITS, clampTopN } from "@/lib/settings/limits";
+import { DEFAULT_LIMITS, clampTopN, normalizeManualLlmLimits } from "@/lib/settings/limits";
+import { normalizeSendTime, normalizeTimezone } from "@/lib/settings/preferences";
+import { normalizeLlmBaseUrl } from "@/lib/llm/endpoint";
 import { SYSTEM_SETTINGS_ID } from "@/lib/app/bootstrap";
+import { normalizeSmtpConfig } from "@/lib/email/smtp-config";
 
 export async function getDecryptedLlmConfig(userId: string): Promise<LlmConfig | undefined> {
   const config = await db.query.userLlmConfig.findFirst({
@@ -32,6 +35,7 @@ export async function upsertUserPreference(
   userId: string,
   input: {
     categories: string[];
+    categoryWeights?: Record<string, number>;
     includeKeywords: string[];
     excludeKeywords: string[];
     topN: number;
@@ -48,11 +52,16 @@ export async function upsertUserPreference(
   const values = {
     userId,
     categories: validated.valid,
+    categoryWeights: Object.fromEntries(
+      Object.entries(input.categoryWeights ?? {})
+        .filter(([category]) => validated.valid.includes(category))
+        .map(([category, weight]) => [category, Math.min(3, Math.max(0.1, Number(weight) || 1))])
+    ),
     includeKeywords: input.includeKeywords,
     excludeKeywords: input.excludeKeywords,
     topN: clampTopN(input.topN, DEFAULT_LIMITS.automaticReportTopNMax),
-    sendTime: input.sendTime || "09:00",
-    timezone: input.timezone || "Asia/Shanghai",
+    sendTime: normalizeSendTime(input.sendTime),
+    timezone: normalizeTimezone(input.timezone),
     summaryFocus: input.summaryFocus || null,
     updatedAt: new Date()
   };
@@ -71,12 +80,13 @@ export async function upsertUserLlmConfig(userId: string, input: { baseUrl: stri
     where: eq(userLlmConfig.userId, userId)
   });
   if (!input.baseUrl || !input.model) throw new Error("Base URL and model are required");
+  const baseUrl = normalizeLlmBaseUrl(input.baseUrl);
   const encryptedApiKey = input.apiKey ? encryptSecret(input.apiKey) : existing?.encryptedApiKey;
   if (!encryptedApiKey) throw new Error("API Key is required");
 
   const values = {
     userId,
-    baseUrl: input.baseUrl,
+    baseUrl,
     encryptedApiKey,
     model: input.model,
     updatedAt: new Date()
@@ -98,16 +108,16 @@ export async function upsertUserSmtpConfig(
   const existing = await db.query.userSmtpConfig.findFirst({
     where: eq(userSmtpConfig.userId, userId)
   });
-  if (!input.host || !input.port || !input.from) throw new Error("SMTP host, port and from are required");
+  const smtp = normalizeSmtpConfig(input);
 
-  const encryptedPassword = input.password ? encryptSecret(input.password) : existing?.encryptedPassword ?? null;
+  const encryptedPassword = smtp.password ? encryptSecret(smtp.password) : existing?.encryptedPassword ?? null;
   const values = {
     userId,
-    host: input.host,
-    port: input.port,
-    secure: input.secure,
-    from: input.from,
-    username: input.username || null,
+    host: smtp.host,
+    port: smtp.port,
+    secure: smtp.secure,
+    from: smtp.from,
+    username: smtp.username,
     encryptedPassword,
     updatedAt: new Date()
   };
@@ -126,13 +136,35 @@ export async function upsertAdminSettings(input: {
   dailyEmailLimit: number;
   emailRetryCount: number;
   arxivMaxResultsPerCategory: number;
+  manualLlmCallsPerUserPerDay?: number;
+  concurrentManualLlmCallsPerUser?: number;
+  userRoleManualLlmCallsPerUserPerDay?: number | null;
+  userRoleConcurrentManualLlmCallsPerUser?: number | null;
+  adminRoleManualLlmCallsPerUserPerDay?: number | null;
+  adminRoleConcurrentManualLlmCallsPerUser?: number | null;
+  logRetentionDays?: number;
+  pdfTextRetentionDays?: number;
+  backupRetentionDays?: number;
 }) {
+  const llmLimits = normalizeManualLlmLimits(input);
+  const optionalLimit = (value?: number | null) => value === null || value === undefined
+    ? null
+    : Math.max(0, Math.floor(Number.isFinite(value) ? value : 0));
   const values = {
     id: SYSTEM_SETTINGS_ID,
     notificationFallbackEnabled: input.notificationFallbackEnabled,
     dailyEmailLimit: Math.max(0, Math.floor(input.dailyEmailLimit)),
     emailRetryCount: Math.max(0, Math.floor(input.emailRetryCount)),
     arxivMaxResultsPerCategory: Math.max(10, Math.floor(input.arxivMaxResultsPerCategory)),
+    manualLlmCallsPerUserPerDay: llmLimits.manualLlmCallsPerUserPerDay,
+    concurrentManualLlmCallsPerUser: llmLimits.concurrentManualLlmCallsPerUser,
+    userRoleManualLlmCallsPerUserPerDay: optionalLimit(input.userRoleManualLlmCallsPerUserPerDay),
+    userRoleConcurrentManualLlmCallsPerUser: optionalLimit(input.userRoleConcurrentManualLlmCallsPerUser),
+    adminRoleManualLlmCallsPerUserPerDay: optionalLimit(input.adminRoleManualLlmCallsPerUserPerDay),
+    adminRoleConcurrentManualLlmCallsPerUser: optionalLimit(input.adminRoleConcurrentManualLlmCallsPerUser),
+    logRetentionDays: Math.max(1, Math.floor(input.logRetentionDays ?? 30)),
+    pdfTextRetentionDays: Math.max(1, Math.floor(input.pdfTextRetentionDays ?? 30)),
+    backupRetentionDays: Math.max(1, Math.floor(input.backupRetentionDays ?? 7)),
     updatedAt: new Date()
   };
   await db
@@ -156,15 +188,16 @@ export async function upsertAdminNotificationSmtp(input: {
   const existing = await db.query.adminNotificationSmtpConfig.findFirst({
     where: eq(adminNotificationSmtpConfig.id, SYSTEM_SETTINGS_ID)
   });
-  const encryptedPassword = input.password ? encryptSecret(input.password) : existing?.encryptedPassword ?? null;
+  const smtp = normalizeSmtpConfig(input);
+  const encryptedPassword = smtp.password ? encryptSecret(smtp.password) : existing?.encryptedPassword ?? null;
   const values = {
     id: SYSTEM_SETTINGS_ID,
     enabled: input.enabled,
-    host: input.host,
-    port: input.port,
-    secure: input.secure,
-    from: input.from,
-    username: input.username || null,
+    host: smtp.host,
+    port: smtp.port,
+    secure: smtp.secure,
+    from: smtp.from,
+    username: smtp.username,
     encryptedPassword,
     updatedAt: new Date()
   };
@@ -175,4 +208,8 @@ export async function upsertAdminNotificationSmtp(input: {
       target: adminNotificationSmtpConfig.id,
       set: values
     });
+}
+
+export async function deleteAdminNotificationSmtp() {
+  await db.delete(adminNotificationSmtpConfig).where(eq(adminNotificationSmtpConfig.id, SYSTEM_SETTINGS_ID));
 }
