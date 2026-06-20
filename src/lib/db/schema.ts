@@ -6,6 +6,7 @@ import {
   jsonb,
   pgTable,
   primaryKey,
+  real,
   text,
   timestamp,
   uniqueIndex
@@ -22,6 +23,8 @@ export const user = pgTable(
     role: text("role").notNull().default("user"),
     disabled: boolean("disabled").notNull().default(false),
     notificationDisabled: boolean("notification_disabled").notNull().default(false),
+    manualLlmCallsPerUserPerDayOverride: integer("manual_llm_calls_per_user_per_day_override"),
+    concurrentManualLlmCallsPerUserOverride: integer("concurrent_manual_llm_calls_per_user_override"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
   },
@@ -150,6 +153,15 @@ export const adminSetting = pgTable("admin_setting", {
   dailyEmailLimit: integer("daily_email_limit").notNull().default(10),
   emailRetryCount: integer("email_retry_count").notNull().default(2),
   arxivMaxResultsPerCategory: integer("arxiv_max_results_per_category").notNull().default(100),
+  manualLlmCallsPerUserPerDay: integer("manual_llm_calls_per_user_per_day").notNull().default(50),
+  concurrentManualLlmCallsPerUser: integer("concurrent_manual_llm_calls_per_user").notNull().default(1),
+  userRoleManualLlmCallsPerUserPerDay: integer("user_role_manual_llm_calls_per_user_per_day"),
+  userRoleConcurrentManualLlmCallsPerUser: integer("user_role_concurrent_manual_llm_calls_per_user"),
+  adminRoleManualLlmCallsPerUserPerDay: integer("admin_role_manual_llm_calls_per_user_per_day"),
+  adminRoleConcurrentManualLlmCallsPerUser: integer("admin_role_concurrent_manual_llm_calls_per_user"),
+  logRetentionDays: integer("log_retention_days").notNull().default(30),
+  pdfTextRetentionDays: integer("pdf_text_retention_days").notNull().default(30),
+  backupRetentionDays: integer("backup_retention_days").notNull().default(7),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
 });
@@ -176,6 +188,19 @@ export const paper = pgTable(
     primaryCategoryIdx: index("paper_primary_category_idx").on(table.primaryCategory)
   })
 );
+
+export const paperMetric = pgTable("paper_metric", {
+  arxivId: text("arxiv_id")
+    .primaryKey()
+    .references(() => paper.arxivId, { onDelete: "cascade" }),
+  avgHIndex: real("avg_h_index").notNull().default(0),
+  strongAuthorCount: integer("strong_author_count").notNull().default(0),
+  peakHIndex: integer("peak_h_index").notNull().default(0),
+  referencesCount: integer("references_count").notNull().default(0),
+  s2Status: text("s2_status").notNull().default("ok"),
+  error: text("error"),
+  fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow()
+});
 
 export const report = pgTable(
   "report",
@@ -253,6 +278,8 @@ export const userPaperState = pgTable(
       .references(() => paper.arxivId, { onDelete: "cascade" }),
     favorited: boolean("favorited").notNull().default(false),
     read: boolean("read").notNull().default(false),
+    ignored: boolean("ignored").notNull().default(false),
+    recommendedAt: timestamp("recommended_at", { withTimezone: true }),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
   },
   (table) => ({
@@ -270,6 +297,33 @@ export const emailLog = pgTable("email_log", {
   error: text("error"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
 });
+
+export const llmCallLog = pgTable(
+  "llm_call_log",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
+    paperId: text("paper_id").references(() => paper.arxivId, { onDelete: "set null" }),
+    reportId: text("report_id").references(() => report.id, { onDelete: "set null" }),
+    endpoint: text("endpoint").notNull(),
+    model: text("model").notNull(),
+    status: text("status").notNull(),
+    error: text("error"),
+    promptChars: integer("prompt_chars").notNull().default(0),
+    completionChars: integer("completion_chars").notNull().default(0),
+    promptTokens: integer("prompt_tokens"),
+    completionTokens: integer("completion_tokens"),
+    totalTokens: integer("total_tokens"),
+    usedPdfText: boolean("used_pdf_text").notNull().default(false),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    userCreatedIdx: index("llm_call_log_user_created_idx").on(table.userId, table.createdAt),
+    endpointCreatedIdx: index("llm_call_log_endpoint_created_idx").on(table.endpoint, table.createdAt)
+  })
+);
 
 export const jobLog = pgTable("job_log", {
   id: text("id").primaryKey(),
