@@ -1,8 +1,9 @@
 import { requireApiUser } from "@/lib/app/authz";
+import { withApiErrorHandling } from "@/lib/app/api-route";
 import { crawlSubscribedCategories } from "@/lib/app/papers";
 import { getAdminSettings } from "@/lib/app/settings";
 
-export async function POST() {
+async function post() {
   await requireApiUser();
   const settings = await getAdminSettings();
   try {
@@ -10,7 +11,8 @@ export async function POST() {
     return Response.json({
       ok: true,
       message: `成功抓取 ${result.categories.length} 个板块`,
-      categories: result.categories
+      categories: result.categories,
+      stats: result.stats
     });
   } catch (error) {
     return Response.json(
@@ -19,3 +21,5 @@ export async function POST() {
     );
   }
 }
+
+export const POST = withApiErrorHandling(post);

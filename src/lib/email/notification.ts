@@ -18,6 +18,10 @@ export type VerifiedRecipient = {
   emailVerified: boolean;
 };
 
+export type RecipientValidationResult =
+  | { ok: true }
+  | { ok: false; reason: "email_not_verified" | "recipient_mismatch"; message: string };
+
 export function selectNotificationSmtp(
   userConfig: SmtpConfig | null | undefined,
   adminFallback: SmtpConfig | null | undefined,
@@ -29,10 +33,31 @@ export function selectNotificationSmtp(
 }
 
 export function assertCanSendToRegisteredEmail(recipient: VerifiedRecipient, requestedTo: string) {
+  const result = validateRegisteredEmailRecipient(recipient, requestedTo);
+  if (!result.ok) {
+    throw new Error(result.message);
+  }
+}
+
+export function validateRegisteredEmailRecipient(recipient: VerifiedRecipient, requestedTo: string): RecipientValidationResult {
   if (!recipient.emailVerified) {
-    throw new Error("Recipient email is not verified");
+    return {
+      ok: false,
+      reason: "email_not_verified",
+      message: "Recipient email is not verified"
+    };
   }
   if (recipient.email.toLowerCase() !== requestedTo.toLowerCase()) {
-    throw new Error("Notification recipient must be the verified registered email");
+    return {
+      ok: false,
+      reason: "recipient_mismatch",
+      message: "Notification recipient must be the verified registered email"
+    };
   }
+  return { ok: true };
+}
+
+export function emailAttemptCount(retryCount: number | null | undefined) {
+  const retries = Number.isFinite(retryCount) ? Math.max(0, Math.floor(Number(retryCount))) : 0;
+  return retries + 1;
 }

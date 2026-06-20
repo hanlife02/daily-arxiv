@@ -2,14 +2,15 @@ import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { requireUser } from "@/lib/app/authz";
+import { requireAppUser } from "@/lib/app/authz";
 import { db } from "@/lib/db";
 import { report, reportVersion } from "@/lib/db/schema";
+import { emailStatusLabel, reportReasonLabel, reportStatusLabel } from "@/lib/reports/status-labels";
 
 export const dynamic = "force-dynamic";
 
 export default async function ReportsPage() {
-  const user = await requireUser();
+  const user = await requireAppUser();
   const reports = await db.query.report.findMany({
     where: eq(report.userId, user.id),
     orderBy: desc(report.createdAt),
@@ -32,9 +33,10 @@ export default async function ReportsPage() {
           <h1 className="text-2xl font-semibold">日报历史</h1>
           <p className="mt-1 text-sm text-muted-foreground">日报长期保存，重生成会保留历史版本，默认展示最新版。</p>
         </div>
-        <Button asChild>
-          <Link href="/admin">去后台生成</Link>
-        </Button>
+        <form action="/api/reports/generate" method="post" className="flex gap-2">
+          <input className="neu-input h-9 px-3 text-sm" name="batchDate" type="date" />
+          <Button type="submit">生成我的日报</Button>
+        </form>
       </div>
       <Card>
         <CardHeader>
@@ -56,11 +58,13 @@ export default async function ReportsPage() {
               <tbody>
                 {reports.map((item) => (
                   <tr key={item.id} className="border-t border-border/40">
-                    <td className="py-3 pr-4 font-mono">{item.batchDate}</td>
-                    <td className="py-3 pr-4">{item.status}</td>
-                    <td className="py-3 pr-4 text-muted-foreground">{item.reason ?? "-"}</td>
+                    <td className="py-3 pr-4 font-mono">
+                      <Link className="hover:underline" href={`/reports/${item.id}`}>{item.batchDate}</Link>
+                    </td>
+                    <td className="py-3 pr-4">{reportStatusLabel(item.status)}</td>
+                    <td className="py-3 pr-4 text-muted-foreground">{reportReasonLabel(item.reason)}</td>
                     <td className="py-3 pr-4">v{item.latestVersion}</td>
-                    <td className="py-3 pr-4">{item.emailStatus}</td>
+                    <td className="py-3 pr-4">{emailStatusLabel(item.emailStatus)}</td>
                     <td className="py-3 text-right">
                       {versionByReport.get(item.id)?.markdown ? (
                         <Link className="neu-btn inline-flex h-9 items-center rounded-xl px-4 text-sm" href={`/api/reports/${item.id}/markdown`}>

@@ -2,24 +2,101 @@ import { Activity, ArrowUpRight, Database, Send, Sparkles, TriangleAlert } from 
 import { and, desc, eq, gte, sql } from "drizzle-orm";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireAppUser } from "@/lib/app/authz";
+import { getManualLlmQuotaStatus } from "@/lib/app/llm-usage";
 import { db } from "@/lib/db";
-import { emailLog, jobLog, paper, paperSummary, report, userPaperState, userPreference } from "@/lib/db/schema";
+import { emailLog, jobLog, llmCallLog, paper, paperSummary, report, userPaperState, userPreference } from "@/lib/db/schema";
+import { jobStatusLabel, reportReasonLabel, reportStatusLabel } from "@/lib/reports/status-labels";
 
 export const dynamic = "force-dynamic";
+
+type TrendPoint = {
+  day: string;
+  count: number;
+};
+
+function utcDayKey(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function lastSevenUtcDays(now = new Date()) {
+  const anchor = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  return Array.from({ length: 7 }, (_, index) => {
+    const day = new Date(anchor);
+    day.setUTCDate(anchor.getUTCDate() - (6 - index));
+    return utcDayKey(day);
+  });
+}
+
+function countByUtcDay<T>(items: T[], days: string[], getDate: (item: T) => Date): TrendPoint[] {
+  const counts = new Map(days.map((day) => [day, 0]));
+  for (const item of items) {
+    const day = utcDayKey(getDate(item));
+    if (counts.has(day)) counts.set(day, (counts.get(day) ?? 0) + 1);
+  }
+  return days.map((day) => ({ day, count: counts.get(day) ?? 0 }));
+}
+
+function TrendPanel({ title, points }: { title: string; points: TrendPoint[] }) {
+  const max = Math.max(1, ...points.map((point) => point.count));
+  const total = points.reduce((sum, point) => sum + point.count, 0);
+
+  return (
+    <div className="neu-inset rounded-xl p-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm font-medium">{title}</p>
+        <p className="text-xs text-muted-foreground">合计 {total}</p>
+      </div>
+      <div className="mt-4 flex h-32 items-end gap-2">
+        {points.map((point) => {
+          const height = point.count > 0 ? Math.max(10, Math.round((point.count / max) * 100)) : 4;
+          return (
+            <div key={point.day} className="flex min-w-0 flex-1 flex-col items-center gap-2">
+              <div className="flex h-24 w-full items-end rounded-lg bg-muted/45 px-1 py-1">
+                <div
+                  className="w-full rounded-md bg-foreground/75"
+                  style={{ height: `${height}%` }}
+                  title={`${point.day}: ${point.count}`}
+                />
+              </div>
+              <div className="w-full truncate text-center text-[11px] text-muted-foreground">{point.day.slice(5).replace("-", "/")}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 export default async function DashboardPage() {
   const currentUser = await requireAppUser();
   const isAdmin = currentUser.role === "admin";
-  const since = new Date();
-  since.setUTCDate(since.getUTCDate() - 7);
+  const trendDays = lastSevenUtcDays();
+  const since = new Date(`${trendDays[0]}T00:00:00.000Z`);
 
-  const [preference, allRecentPapers, paperCount, summaryCount, sentCount, failedCount, favoriteCount, jobs, userReports] = await Promise.all([
+  const [
+    preference,
+    allRecentPapers,
+    paperCount,
+    summaryCount,
+    llmCallCount,
+    sentCount,
+    failedCount,
+    favoriteCount,
+    jobs,
+    userReports,
+    trendReports,
+    trendLlmCalls,
+    manualLlmQuota
+  ] = await Promise.all([
     db.query.userPreference.findFirst({ where: eq(userPreference.userId, currentUser.id) }),
     db.select().from(paper).where(gte(paper.publishedAt, since)).orderBy(desc(paper.publishedAt)).limit(500),
     db.select({ count: sql<number>`count(*)::int` }).from(paper).where(gte(paper.publishedAt, since)).then(([row]) => row?.count ?? 0),
     isAdmin
       ? db.select({ count: sql<number>`count(*)::int` }).from(paperSummary).where(gte(paperSummary.createdAt, since)).then(([row]) => row?.count ?? 0)
       : db.select({ count: sql<number>`count(*)::int` }).from(paperSummary).where(and(eq(paperSummary.userId, currentUser.id), gte(paperSummary.createdAt, since))).then(([row]) => row?.count ?? 0),
+    isAdmin
+      ? db.select({ count: sql<number>`count(*)::int` }).from(llmCallLog).where(gte(llmCallLog.createdAt, since)).then(([row]) => row?.count ?? 0)
+      : db.select({ count: sql<number>`count(*)::int` }).from(llmCallLog).where(and(eq(llmCallLog.userId, currentUser.id), gte(llmCallLog.createdAt, since))).then(([row]) => row?.count ?? 0),
     isAdmin
       ? db.select({ count: sql<number>`count(*)::int` }).from(emailLog).where(eq(emailLog.status, "sent")).then(([row]) => row?.count ?? 0)
       : db.select({ count: sql<number>`count(*)::int` }).from(emailLog).where(and(eq(emailLog.userId, currentUser.id), eq(emailLog.status, "sent"))).then(([row]) => row?.count ?? 0),
@@ -28,23 +105,42 @@ export default async function DashboardPage() {
       : db.select({ count: sql<number>`count(*)::int` }).from(report).where(and(eq(report.userId, currentUser.id), eq(report.status, "failed"))).then(([row]) => row?.count ?? 0),
     db.select({ count: sql<number>`count(*)::int` }).from(userPaperState).where(and(eq(userPaperState.userId, currentUser.id), eq(userPaperState.favorited, true))).then(([row]) => row?.count ?? 0),
     db.query.jobLog.findMany({ orderBy: desc(jobLog.createdAt), limit: 8 }),
-    db.query.report.findMany({ where: eq(report.userId, currentUser.id), orderBy: desc(report.createdAt), limit: 8 })
+    db.query.report.findMany({ where: eq(report.userId, currentUser.id), orderBy: desc(report.createdAt), limit: 8 }),
+    isAdmin
+      ? db.select({ createdAt: report.createdAt }).from(report).where(gte(report.createdAt, since))
+      : db.select({ createdAt: report.createdAt }).from(report).where(and(eq(report.userId, currentUser.id), gte(report.createdAt, since))),
+    isAdmin
+      ? db.select({ createdAt: llmCallLog.createdAt }).from(llmCallLog).where(gte(llmCallLog.createdAt, since))
+      : db.select({ createdAt: llmCallLog.createdAt }).from(llmCallLog).where(and(eq(llmCallLog.userId, currentUser.id), gte(llmCallLog.createdAt, since))),
+    isAdmin ? Promise.resolve(null) : getManualLlmQuotaStatus(currentUser.id)
   ]);
 
-  const userPaperCount = allRecentPapers.filter((item) =>
+  const relevantRecentPapers = allRecentPapers.filter((item) =>
     item.categories.some((category) => preference?.categories.includes(category))
-  ).length;
+  );
+  const userPaperCount = relevantRecentPapers.length;
+  const paperTrend = countByUtcDay(isAdmin ? allRecentPapers : relevantRecentPapers, trendDays, (item) => item.publishedAt);
+  const reportTrend = countByUtcDay(trendReports, trendDays, (item) => item.createdAt);
+  const llmTrend = countByUtcDay(trendLlmCalls, trendDays, (item) => item.createdAt);
 
   const kpis = isAdmin
     ? [
         { label: "7 天全局论文", value: String(paperCount), delta: "入库", hint: "所有用户订阅板块并集", icon: Database },
         { label: "7 天摘要总数", value: String(summaryCount), delta: "LLM", hint: "全站用户摘要", icon: Sparkles },
+        { label: "7 天 LLM 调用", value: String(llmCallCount), delta: "调用", hint: "日报、阅读摘要和问答", icon: Sparkles },
         { label: "全站邮件已发送", value: String(sentCount), delta: "SMTP", hint: "用户 SMTP 或管理员 fallback", icon: Send },
         { label: "失败日报", value: String(failedCount), delta: "需处理", hint: "全站失败日报", icon: TriangleAlert }
       ]
     : [
         { label: "我的候选论文", value: String(userPaperCount), delta: "订阅", hint: preference?.categories.join(", ") || "未配置订阅", icon: Database },
         { label: "我的摘要", value: String(summaryCount), delta: "LLM", hint: "只统计当前账号", icon: Sparkles },
+        {
+          label: "今日 AI 阅读",
+          value: `${manualLlmQuota?.usedToday ?? 0}/${manualLlmQuota?.manualLlmCallsPerUserPerDay ?? 0}`,
+          delta: `剩余 ${manualLlmQuota?.remainingToday ?? 0}`,
+          hint: `阅读页摘要/问答，不含日报 · 并发 ${manualLlmQuota?.running ?? 0}/${manualLlmQuota?.concurrentManualLlmCallsPerUser ?? 0}`,
+          icon: Sparkles
+        },
         { label: "我的邮件", value: String(sentCount), delta: "SMTP", hint: "只发送到已验证注册邮箱", icon: Send },
         { label: "我的收藏", value: String(favoriteCount), delta: "论文池", hint: "收藏论文数量", icon: TriangleAlert }
       ];
@@ -75,7 +171,7 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      <section className="grid gap-4 md:grid-cols-4">
+      <section className="grid gap-4 md:grid-cols-5">
         {kpis.map((kpi) => (
           <Card key={kpi.label}>
             <CardHeader className="flex flex-row items-center justify-between gap-3">
@@ -96,6 +192,20 @@ export default async function DashboardPage() {
         ))}
       </section>
 
+      <Card>
+        <CardHeader>
+          <CardTitle>7 天趋势</CardTitle>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {isAdmin ? "按 UTC 日期统计全站论文入库、日报生成和 LLM 调用。" : "按 UTC 日期统计你的候选论文、日报生成和 LLM 调用。"}
+          </p>
+        </CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-3">
+          <TrendPanel title={isAdmin ? "全局论文" : "候选论文"} points={paperTrend} />
+          <TrendPanel title="日报" points={reportTrend} />
+          <TrendPanel title="LLM 调用" points={llmTrend} />
+        </CardContent>
+      </Card>
+
       <section className="grid gap-4 xl:grid-cols-[1fr_1fr]">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-3">
@@ -112,10 +222,12 @@ export default async function DashboardPage() {
                 <div className="border-l-2 border-accent/20 pl-3">
                   <div className="flex items-center justify-between gap-3">
                     <p className="font-medium">{isAdmin ? ("type" in item ? item.type : "") : ("batchDate" in item ? `日报 ${item.batchDate}` : "")}</p>
-                    <span className="neu-inset rounded-full px-2 py-0.5 text-xs text-muted-foreground">{item.status}</span>
+                    <span className="neu-inset rounded-full px-2 py-0.5 text-xs text-muted-foreground">
+                      {isAdmin ? jobStatusLabel(item.status) : reportStatusLabel(item.status)}
+                    </span>
                   </div>
                   <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    {isAdmin ? ("message" in item ? item.message ?? "无消息" : "") : ("reason" in item ? item.reason ?? "无原因" : "")}
+                    {isAdmin ? ("message" in item ? item.message ?? "无消息" : "") : ("reason" in item ? reportReasonLabel(item.reason) : "")}
                   </p>
                 </div>
               </div>
@@ -149,7 +261,7 @@ export default async function DashboardPage() {
                       <td className="py-3 pr-4 text-muted-foreground">{task.owner}</td>
                       <td className="py-3 pr-4">{task.target}</td>
                       <td className="py-3">
-                        <span className="neu-inset inline-block rounded-full px-3 py-1 text-xs">{task.status}</span>
+                        <span className="neu-inset inline-block rounded-full px-3 py-1 text-xs">{jobStatusLabel(task.status)}</span>
                       </td>
                     </tr>
                   ))}

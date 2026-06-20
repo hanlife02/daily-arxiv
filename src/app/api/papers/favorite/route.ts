@@ -1,10 +1,11 @@
 import { requireApiUser } from "@/lib/app/authz";
+import { withApiErrorHandling } from "@/lib/app/api-route";
 import { booleanFromForm, stringFromForm } from "@/lib/app/forms";
 import { redirectToApp } from "@/lib/app/http";
 import { db } from "@/lib/db";
 import { userPaperState } from "@/lib/db/schema";
 
-export async function POST(request: Request) {
+async function post(request: Request) {
   const user = await requireApiUser();
   const form = await request.formData();
   const paperId = stringFromForm(form.get("paperId"));
@@ -30,3 +31,5 @@ export async function POST(request: Request) {
 
   return redirectToApp("/papers", request);
 }
+
+export const POST = withApiErrorHandling(post);

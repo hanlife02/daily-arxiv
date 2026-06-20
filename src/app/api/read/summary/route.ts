@@ -1,13 +1,30 @@
-import { eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
 import { db } from "@/lib/db";
-import { paper } from "@/lib/db/schema";
+import { paper, paperSummary } from "@/lib/db/schema";
 import { requireApiUser } from "@/lib/app/authz";
+import { withApiErrorHandling } from "@/lib/app/api-route";
 import { getDecryptedLlmConfig } from "@/lib/app/settings";
 import { streamChatCompletion } from "@/lib/llm/streaming";
+import { assertManualLlmAllowed, finishLlmCall, startLlmCall } from "@/lib/app/llm-usage";
+import { loadPaperPdfText, MAX_PDF_PROMPT_CHARS } from "@/lib/app/pdf";
 
-const MAX_PDF_CHARS = 80000;
+const READ_SUMMARY_PROMPT_VERSION = "read-summary-markdown-v1";
 
-export async function POST(request: Request) {
+function markdownSummaryStream(summary: string) {
+  const encoder = new TextEncoder();
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+        choices: [{ delta: { content: summary } }]
+      })}\n\n`));
+      controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+      controller.close();
+    }
+  });
+}
+
+async function post(request: Request) {
   const user = await requireApiUser();
 
   let body: { paperId?: string };
@@ -27,32 +44,40 @@ export async function POST(request: Request) {
     return Response.json({ ok: false, error: "Paper not found" }, { status: 404 });
   }
 
+  const cachedSummary = await db.query.paperSummary.findFirst({
+    where: and(
+      eq(paperSummary.userId, user.id),
+      eq(paperSummary.paperId, paperId),
+      eq(paperSummary.promptVersion, READ_SUMMARY_PROMPT_VERSION)
+    ),
+    orderBy: desc(paperSummary.createdAt)
+  });
+  if (cachedSummary?.summaryZh) {
+    return new Response(markdownSummaryStream(cachedSummary.summaryZh), {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+        "X-Daily-Arxiv-Summary-Cache": "HIT"
+      }
+    });
+  }
+
   const llmConfig = await getDecryptedLlmConfig(user.id);
   if (!llmConfig) {
     return Response.json({ ok: false, error: "LLM 未配置" }, { status: 400 });
   }
-
-  let pdfText = row.pdfText;
-  if (!pdfText && row.pdfUrl) {
-    try {
-      const res = await fetch(row.pdfUrl);
-      if (res.ok) {
-        const buffer = Buffer.from(await res.arrayBuffer());
-        const { PDFParse } = await import("pdf-parse");
-        const parser = new PDFParse({ data: buffer });
-        const result = await parser.getText();
-        await parser.destroy();
-        pdfText = result.text;
-        await db.update(paper).set({ pdfText }).where(eq(paper.arxivId, paperId));
-      }
-    } catch {
-      // fall back to abstract
-    }
+  try {
+    await assertManualLlmAllowed(user.id);
+  } catch (error) {
+    return Response.json({ ok: false, error: error instanceof Error ? error.message : "AI 阅读调用受限" }, { status: 429 });
   }
 
-  const contextBlock = pdfText
-    ? `\n\n论文全文（截断至 ${MAX_PDF_CHARS} 字符）：\n\n${pdfText.slice(0, MAX_PDF_CHARS)}`
-    : "\n\n（无法获取论文全文，仅基于摘要生成总结。）";
+  const pdf = await loadPaperPdfText(row);
+
+  const contextBlock = pdf.text
+    ? `\n\n论文全文（截断至 ${MAX_PDF_PROMPT_CHARS} 字符）：\n\n${pdf.text.slice(0, MAX_PDF_PROMPT_CHARS)}`
+    : `\n\n（无法获取论文全文，仅基于摘要生成总结。${pdf.error ? `原因：${pdf.error}` : ""}）`;
 
   const systemPrompt = [
     "你是一位学术论文阅读助手。请对以下论文进行全面总结。",
@@ -74,17 +99,63 @@ export async function POST(request: Request) {
     `摘要：${row.abstract}`,
     contextBlock
   ].join("\n");
+  const call = await startLlmCall({
+    userId: user.id,
+    paperId,
+    endpoint: "read-summary",
+    model: llmConfig.model,
+    promptChars: systemPrompt.length,
+    usedPdfText: Boolean(pdf.text)
+  });
+  const summaryChunks: string[] = [];
 
   const stream = streamChatCompletion(llmConfig, [
     { role: "system", content: systemPrompt },
     { role: "user", content: "请总结这篇论文。" }
-  ]);
+  ], {
+    signal: request.signal,
+    onDeltaContent: (content) => {
+      summaryChunks.push(content);
+    },
+    onFinish: async ({ completionChars, usage, error }) => {
+      await finishLlmCall(call.id, {
+        status: error ? "failed" : "succeeded",
+        completionChars,
+        promptTokens: usage?.promptTokens,
+        completionTokens: usage?.completionTokens,
+        totalTokens: usage?.totalTokens,
+        error
+      });
+      const summaryMarkdown = summaryChunks.join("").trim();
+      if (!error && summaryMarkdown) {
+        await db.insert(paperSummary).values({
+          id: randomUUID(),
+          userId: user.id,
+          paperId,
+          titleOriginal: row.title,
+          titleZh: row.title,
+          abstractOriginal: row.abstract,
+          abstractZh: row.abstract,
+          oneSentenceSummaryZh: summaryMarkdown.replace(/\s+/g, " ").slice(0, 30) || row.title.slice(0, 30),
+          summaryZh: summaryMarkdown,
+          model: llmConfig.model,
+          promptVersion: READ_SUMMARY_PROMPT_VERSION,
+          rawResponse: { markdown: summaryMarkdown, source: "read-summary" },
+          createdAt: new Date()
+        });
+      }
+    }
+  });
 
   return new Response(stream, {
     headers: {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
-      Connection: "keep-alive"
+      Connection: "keep-alive",
+      "X-Daily-Arxiv-Pdf-Source": pdf.source,
+      "X-Daily-Arxiv-Pdf-Text": pdf.text ? "1" : "0"
     }
   });
 }
+
+export const POST = withApiErrorHandling(post);

@@ -1,5 +1,7 @@
 import type { PaperRecord } from "@/lib/arxiv/types";
+import { chatCompletionsEndpoint } from "@/lib/llm/endpoint";
 import { parsePaperSummaryResponse, type PaperSummary } from "@/lib/llm/schema";
+import { extractLlmUsageTokens, type LlmUsageTokens } from "@/lib/llm/usage-tokens";
 
 export type LlmConfig = {
   baseUrl: string;
@@ -8,6 +10,11 @@ export type LlmConfig = {
 };
 
 export const PROMPT_VERSION = "daily-arxiv-v1";
+
+export type PaperSummaryResult = {
+  summary: PaperSummary;
+  usage?: LlmUsageTokens;
+};
 
 export function buildPaperSummaryPrompt(paper: PaperRecord, focus?: string) {
   return [
@@ -26,12 +33,12 @@ export function buildPaperSummaryPrompt(paper: PaperRecord, focus?: string) {
     .join("\n");
 }
 
-export async function summarizePaperWithChatCompletions(
+export async function summarizePaperWithChatCompletionsResult(
   paper: PaperRecord,
   config: LlmConfig,
   focus?: string
-): Promise<PaperSummary> {
-  const endpoint = new URL("/v1/chat/completions", config.baseUrl);
+): Promise<PaperSummaryResult> {
+  const endpoint = chatCompletionsEndpoint(config.baseUrl);
   const response = await fetch(endpoint, {
     method: "POST",
     headers: {
@@ -53,11 +60,22 @@ export async function summarizePaperWithChatCompletions(
     throw new Error(`LLM request failed: ${response.status}`);
   }
 
-  const json = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+  const json = (await response.json()) as { choices?: Array<{ message?: { content?: string } }>; usage?: unknown };
   const content = json.choices?.[0]?.message?.content;
   if (!content) {
     throw new Error("LLM response has no content");
   }
 
-  return parsePaperSummaryResponse(content);
+  return {
+    summary: parsePaperSummaryResponse(content),
+    usage: extractLlmUsageTokens(json)
+  };
+}
+
+export async function summarizePaperWithChatCompletions(
+  paper: PaperRecord,
+  config: LlmConfig,
+  focus?: string
+): Promise<PaperSummary> {
+  return (await summarizePaperWithChatCompletionsResult(paper, config, focus)).summary;
 }

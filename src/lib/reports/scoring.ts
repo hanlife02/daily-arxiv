@@ -12,7 +12,75 @@ export type RankingPreference = {
 export type ScoredPaper = PaperRecord & {
   score: number;
   reasons: string[];
+  scoreBreakdown: {
+    category: number;
+    relevance: number;
+    novelty: number;
+    value: number;
+  };
 };
+
+const VALUE_TERMS = [
+  "benchmark",
+  "dataset",
+  "open-source",
+  "open source",
+  "code",
+  "reproducible",
+  "large-scale",
+  "large scale",
+  "state-of-the-art",
+  "sota",
+  "efficient",
+  "scalable",
+  "robust",
+  "safety",
+  "evaluation",
+  "empirical",
+  "theorem",
+  "proof",
+  "theoretical",
+  "survey"
+];
+
+function clamp(value: number, min = 0, max = 100) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function uniqueNormalized(values: string[]) {
+  return [...new Set(values.map((item) => item.trim().toLowerCase()).filter(Boolean))];
+}
+
+function includesTerm(text: string, term: string) {
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/[-\s]+/g, "[-\\s]+");
+  return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, "i").test(text);
+}
+
+function scoreNovelty(paper: PaperRecord, now: Date) {
+  const ageHours = Math.max(0, (now.getTime() - paper.publishedAt.getTime()) / 36e5);
+  const publishedFreshness = ageHours <= 12 ? 100 : clamp(100 - ((ageHours - 12) / (24 * 7 - 12)) * 100);
+
+  const updateLagHours = Math.max(0, (paper.updatedAt.getTime() - paper.publishedAt.getTime()) / 36e5);
+  if (updateLagHours < 6) return publishedFreshness;
+
+  const updateAgeHours = Math.max(0, (now.getTime() - paper.updatedAt.getTime()) / 36e5);
+  const updateFreshness = updateAgeHours <= 24 ? 100 : clamp(100 - ((updateAgeHours - 24) / (24 * 14 - 24)) * 100);
+  return clamp(publishedFreshness * 0.8 + updateFreshness * 0.2);
+}
+
+function scoreValue(title: string, abstract: string, reasons: string[]) {
+  let score = 0;
+  for (const term of VALUE_TERMS) {
+    if (includesTerm(title, term)) {
+      score += 18;
+      reasons.push(`value:title:${term}`);
+    } else if (includesTerm(abstract, term)) {
+      score += 8;
+      reasons.push(`value:abstract:${term}`);
+    }
+  }
+  return clamp(score);
+}
 
 export function scorePaper(paper: PaperRecord, preference: RankingPreference, now = new Date()): ScoredPaper | null {
   if (!paper.categories.some((category) => preference.categories.includes(category))) return null;
@@ -20,37 +88,60 @@ export function scorePaper(paper: PaperRecord, preference: RankingPreference, no
   const haystackTitle = paper.title.toLowerCase();
   const haystackAbstract = paper.abstract.toLowerCase();
   const reasons: string[] = [];
-  let score = 0;
+  const includeKeywords = uniqueNormalized(preference.includeKeywords);
+  const excludeKeywords = uniqueNormalized(preference.excludeKeywords);
 
-  for (const category of paper.categories) {
-    if (preference.categories.includes(category)) {
-      const weight = preference.categoryWeights?.[category] ?? 1;
-      score += 10 * weight;
-      reasons.push(`category:${category}`);
-    }
-  }
-
-  for (const keyword of preference.includeKeywords.map((item) => item.toLowerCase()).filter(Boolean)) {
-    if (haystackTitle.includes(keyword)) {
-      score += 12;
-      reasons.push(`title:${keyword}`);
-    }
-    if (haystackAbstract.includes(keyword)) {
-      score += 6;
-      reasons.push(`abstract:${keyword}`);
-    }
-  }
-
-  for (const keyword of preference.excludeKeywords.map((item) => item.toLowerCase()).filter(Boolean)) {
+  for (const keyword of excludeKeywords) {
     if (haystackTitle.includes(keyword) || haystackAbstract.includes(keyword)) {
       return null;
     }
   }
 
-  const ageHours = Math.max(0, (now.getTime() - paper.publishedAt.getTime()) / 36e5);
-  score += Math.max(0, 8 - ageHours / 12);
+  let categoryScore = 0;
+  let matchedCategoryCount = 0;
+  for (const category of paper.categories) {
+    if (preference.categories.includes(category)) {
+      const weight = clamp(preference.categoryWeights?.[category] ?? 1, 0.1, 3);
+      categoryScore = Math.max(categoryScore, 70 + (weight - 1) * 20);
+      matchedCategoryCount += 1;
+      reasons.push(`category:${category}`);
+    }
+  }
+  categoryScore = clamp(categoryScore + Math.max(0, matchedCategoryCount - 1) * 8);
 
-  return { ...paper, score, reasons };
+  let relevanceScore = includeKeywords.length === 0 ? 60 : 0;
+  for (const keyword of includeKeywords) {
+    if (haystackTitle.includes(keyword)) {
+      relevanceScore += 55;
+      reasons.push(`title:${keyword}`);
+    }
+    if (haystackAbstract.includes(keyword)) {
+      relevanceScore += 25;
+      reasons.push(`abstract:${keyword}`);
+    }
+  }
+  relevanceScore = clamp(relevanceScore);
+
+  const noveltyScore = scoreNovelty(paper, now);
+  const valueScore = scoreValue(haystackTitle, haystackAbstract, reasons);
+
+  const score =
+    categoryScore * 0.25 +
+    relevanceScore * 0.3 +
+    noveltyScore * 0.25 +
+    valueScore * 0.2;
+
+  return {
+    ...paper,
+    score,
+    reasons,
+    scoreBreakdown: {
+      category: categoryScore,
+      relevance: relevanceScore,
+      novelty: noveltyScore,
+      value: valueScore
+    }
+  };
 }
 
 export function rankPapers(papers: PaperRecord[], preference: RankingPreference, now = new Date()) {
@@ -71,6 +162,22 @@ export type AdvancedScoredPaper = ScoredPaper & {
   refScore: number;
 };
 
+function scoreAuthorAuthority(s2: S2PaperData) {
+  const peak = clamp((s2.peakHIndex / 80) * 100);
+  const average = clamp((s2.avgHIndex / 45) * 100);
+  const strongAuthors = clamp((s2.strongAuthorCount / 4) * 100);
+  return peak * 0.55 + average * 0.25 + strongAuthors * 0.2;
+}
+
+function scoreReferenceMaturity(referencesCount: number) {
+  if (referencesCount <= 0) return 35;
+  if (referencesCount < 10) return 45 + referencesCount * 3;
+  if (referencesCount < 20) return 75 + (referencesCount - 10) * 2.5;
+  if (referencesCount <= 90) return 100;
+  if (referencesCount <= 180) return 100 - ((referencesCount - 90) / 90) * 35;
+  return 55;
+}
+
 export function advancedScorePaper(
   paper: PaperRecord,
   preference: RankingPreference,
@@ -79,38 +186,17 @@ export function advancedScorePaper(
 ): AdvancedScoredPaper | null {
   const base = scorePaper(paper, preference, now);
   if (!base) return null;
+  if (!s2) return { ...base, authorScore: 0, refScore: 0 };
 
-  // Author influence: peakHIndex × log2(1 + strongAuthorCount)
-  const peak = s2?.peakHIndex ?? 0;
-  const strong = s2?.strongAuthorCount ?? 0;
-  const authorScore = peak > 0 ? peak * Math.log2(1 + strong) : 0;
-
-  // Reference count: 20-80 is optimal, bell curve
-  const refs = s2?.referencesCount ?? 0;
-  let refScore = 0;
-  if (refs >= 20 && refs <= 80) {
-    refScore = 100; // optimal range
-  } else if (refs > 80) {
-    refScore = Math.max(0, 100 - (refs - 80) * 2); // decay: too many = survey bloat
-  } else {
-    refScore = refs * 5; // too few = underdeveloped
-  }
-
-  // Blend: category(40%) + author(25%) + refs(15%) + keywords(15%) + freshness(5%)
-  // Normalize base.score to 0-100 first (typical range is 0-40)
-  const categoryNorm = Math.min(100, (base.score / 40) * 100);
-  const freshNorm = Math.min(100, base.score > 0 ? ((base.score % 10) / 8) * 100 : 0);
-  const kwNorm = base.reasons.some((r) => r.startsWith("title:") || r.startsWith("abstract:"))
-    ? base.reasons.filter((r) => r.startsWith("title:")).length * 60 +
-      base.reasons.filter((r) => r.startsWith("abstract:")).length * 30
-    : 0;
-
+  const authorScore = scoreAuthorAuthority(s2);
+  const refScore = scoreReferenceMaturity(s2.referencesCount);
+  const fitScore = base.scoreBreakdown.category * 0.45 + base.scoreBreakdown.relevance * 0.55;
   const blended =
-    categoryNorm * 0.4 +
+    fitScore * 0.3 +
+    base.scoreBreakdown.novelty * 0.2 +
+    base.scoreBreakdown.value * 0.15 +
     authorScore * 0.25 +
-    refScore * 0.15 +
-    Math.min(100, kwNorm) * 0.15 +
-    freshNorm * 0.05;
+    refScore * 0.1;
 
   return { ...base, score: blended, authorScore, refScore };
 }
@@ -125,4 +211,22 @@ export function advancedRankPapers(
     .map((p) => advancedScorePaper(p, preference, s2Data.get(p.arxivId), now))
     .filter((p): p is AdvancedScoredPaper => Boolean(p))
     .sort((a, b) => b.score - a.score || b.publishedAt.getTime() - a.publishedAt.getTime());
+}
+
+export function explainScore(paper: ScoredPaper) {
+  const explanations: string[] = [];
+  if (paper.scoreBreakdown.novelty >= 80) explanations.push("新近发布");
+  if (paper.scoreBreakdown.value >= 40) explanations.push("包含数据集/benchmark/代码等价值信号");
+  if (paper.scoreBreakdown.relevance >= 80) explanations.push("高度匹配关键词");
+  if (paper.scoreBreakdown.category >= 85) explanations.push("重点分类匹配");
+
+  if ("authorScore" in paper && typeof paper.authorScore === "number" && paper.authorScore >= 70) {
+    explanations.push("作者权威度高");
+  }
+  if ("refScore" in paper && typeof paper.refScore === "number" && paper.refScore >= 90) {
+    explanations.push("引用结构成熟");
+  }
+
+  if (explanations.length > 0) return explanations;
+  return ["匹配订阅方向"];
 }

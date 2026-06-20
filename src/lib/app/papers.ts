@@ -1,10 +1,11 @@
-import { desc, gte } from "drizzle-orm";
+import { and, desc, gte, sql } from "drizzle-orm";
 import { fetchArxivCategory } from "@/lib/arxiv/client";
 import { filterNewSubmissions } from "@/lib/arxiv/filter";
 import type { PaperRecord } from "@/lib/arxiv/types";
 import { db } from "@/lib/db";
 import { paper, userPreference } from "@/lib/db/schema";
 import { getSubscriptionUnion } from "@/lib/arxiv/categories";
+import { paperHasAnyCategory } from "@/lib/app/paper-categories";
 
 export function paperRowToRecord(row: typeof paper.$inferSelect): PaperRecord {
   return {
@@ -19,6 +20,14 @@ export function paperRowToRecord(row: typeof paper.$inferSelect): PaperRecord {
     publishedAt: row.publishedAt,
     updatedAt: row.updatedAt
   };
+}
+
+function categoriesOverlapCondition(categories: string[]) {
+  return sql`exists (
+    select 1
+    from jsonb_array_elements_text(${paper.categories}) as matched_category(value)
+    where matched_category.value in (${sql.join(categories.map((category) => sql`${category}`), sql`, `)})
+  )`;
 }
 
 export async function upsertPapers(records: PaperRecord[]) {
@@ -80,13 +89,12 @@ export async function getRecentPapersForCategories(categories: string[], since: 
   const rows = await db
     .select()
     .from(paper)
-    .where(gte(paper.publishedAt, since))
+    .where(and(gte(paper.publishedAt, since), categoriesOverlapCondition(categories)))
     .orderBy(desc(paper.publishedAt))
-    .limit(limit * 3);
+    .limit(limit);
   return rows
     .map(paperRowToRecord)
-    .filter((record) => record.categories.some((category) => categories.includes(category)))
-    .slice(0, limit);
+    .filter((record) => paperHasAnyCategory(record.categories, categories));
 }
 
 export async function getLatestPapers(limit = 20) {

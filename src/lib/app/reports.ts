@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { paperSummary, report, reportVersion, user, userPreference } from "@/lib/db/schema";
+import { paperSummary, report, reportVersion, user, userPaperState, userPreference } from "@/lib/db/schema";
 import { getDecryptedLlmConfig } from "@/lib/app/settings";
 import { generateDailyReport } from "@/lib/reports/generate";
 import { getRecentPapersForCategories } from "@/lib/app/papers";
 import { sendLatestReportEmail } from "@/lib/app/notifications";
 import type { PaperSummary } from "@/lib/llm/schema";
+import { fetchCachedS2Batch } from "@/lib/arxiv/s2";
 
 export function defaultBatchDate(now = new Date()) {
   return now.toISOString().slice(0, 10);
@@ -18,7 +19,30 @@ function sinceForBatch(batchDate: string) {
   return since;
 }
 
+function initialEmailStatusForReport(result: { status: string; reason: string; selected: unknown[] }) {
+  if (["succeeded", "partial_succeeded"].includes(result.status) && result.selected.length > 0) {
+    return "pending";
+  }
+  return result.reason === "skipped_no_new_papers" ? "skipped_no_new_papers" : "skipped_not_applicable";
+}
+
 export async function generateAndStoreDailyReport(userId: string, batchDate = defaultBatchDate(), sendEmail = true) {
+  const owner = await db.query.user.findFirst({
+    where: eq(user.id, userId)
+  });
+  if (!owner) {
+    return {
+      status: "skipped" as const,
+      reason: "user_not_found" as const
+    };
+  }
+  if (owner.disabled) {
+    return {
+      status: "skipped" as const,
+      reason: "user_disabled" as const
+    };
+  }
+
   const preference = await db.query.userPreference.findFirst({
     where: eq(userPreference.userId, userId)
   });
@@ -31,10 +55,12 @@ export async function generateAndStoreDailyReport(userId: string, batchDate = de
   }
 
   const papers = await getRecentPapersForCategories(preference.categories, sinceForBatch(batchDate), 500);
+  const s2Data = papers.length > 0 ? await fetchCachedS2Batch(papers.map((item) => item.arxivId)) : new Map();
   const llmConfig = await getDecryptedLlmConfig(userId);
   const result = await generateDailyReport({
     batchDate,
     papers,
+    userId,
     preference: {
       categories: preference.categories,
       includeKeywords: preference.includeKeywords,
@@ -43,10 +69,12 @@ export async function generateAndStoreDailyReport(userId: string, batchDate = de
       topN: preference.topN,
       summaryFocus: preference.summaryFocus ?? undefined
     },
+    s2Data,
     llmConfig
   });
 
   const now = new Date();
+  const initialEmailStatus = initialEmailStatusForReport(result);
   const existing = await db.query.report.findFirst({
     where: and(eq(report.userId, userId), eq(report.batchDate, batchDate))
   });
@@ -59,6 +87,7 @@ export async function generateAndStoreDailyReport(userId: string, batchDate = de
       .set({
         status: result.status,
         reason: result.reason,
+        emailStatus: initialEmailStatus,
         latestVersion: nextVersion,
         updatedAt: now
       })
@@ -70,6 +99,7 @@ export async function generateAndStoreDailyReport(userId: string, batchDate = de
       batchDate,
       status: result.status,
       reason: result.reason,
+      emailStatus: initialEmailStatus,
       latestVersion: nextVersion,
       createdAt: now,
       updatedAt: now
@@ -86,6 +116,27 @@ export async function generateAndStoreDailyReport(userId: string, batchDate = de
     promptVersion: result.promptVersion,
     createdAt: now
   });
+
+  for (const selected of result.selected) {
+    await db
+      .insert(userPaperState)
+      .values({
+        userId,
+        paperId: selected.arxivId,
+        favorited: false,
+        read: false,
+        ignored: false,
+        recommendedAt: now,
+        updatedAt: now
+      })
+      .onConflictDoUpdate({
+        target: [userPaperState.userId, userPaperState.paperId],
+        set: {
+          recommendedAt: now,
+          updatedAt: now
+        }
+      });
+  }
 
   for (const selected of result.selected) {
     if (!("summary" in selected) || !selected.summary || !llmConfig) continue;
@@ -107,9 +158,9 @@ export async function generateAndStoreDailyReport(userId: string, batchDate = de
     });
   }
 
-  const email = result.status === "succeeded" && result.selected.length > 0 && sendEmail
+  const email = initialEmailStatus === "pending" && sendEmail
     ? await sendLatestReportEmail(reportId)
-    : { sent: false, reason: "not_attempted" as const };
+    : { sent: false, reason: initialEmailStatus === "pending" ? "not_attempted" as const : initialEmailStatus };
 
   return {
     status: result.status,
@@ -121,14 +172,14 @@ export async function generateAndStoreDailyReport(userId: string, batchDate = de
   };
 }
 
-export async function generateReportsForAllUsers(batchDate = defaultBatchDate()) {
+export async function generateReportsForAllUsers(batchDate = defaultBatchDate(), sendEmail = true) {
   const rows = await db
     .select({ id: user.id })
     .from(user)
     .where(eq(user.disabled, false));
   const results = [];
   for (const row of rows) {
-    results.push({ userId: row.id, result: await generateAndStoreDailyReport(row.id, batchDate) });
+    results.push({ userId: row.id, result: await generateAndStoreDailyReport(row.id, batchDate, sendEmail) });
   }
   return results;
 }

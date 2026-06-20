@@ -1,25 +1,19 @@
 import { and, eq } from "drizzle-orm";
 import { requireApiUser } from "@/lib/app/authz";
+import { withApiErrorHandling } from "@/lib/app/api-route";
+import { userReportWhere } from "@/lib/app/report-access";
+import { createReportMarkdownDownloadHandler } from "@/lib/app/report-markdown-download";
 import { db } from "@/lib/db";
-import { report, reportVersion } from "@/lib/db/schema";
+import { reportVersion } from "@/lib/db/schema";
 
-export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const user = await requireApiUser();
-  const { id } = await params;
-  const currentReport = await db.query.report.findFirst({
-    where: and(eq(report.id, id), eq(report.userId, user.id))
-  });
-  if (!currentReport) return new Response("Not found", { status: 404 });
+const get = createReportMarkdownDownloadHandler({
+  requireUser: requireApiUser,
+  findReport: (reportId, userId) => db.query.report.findFirst({
+    where: userReportWhere(reportId, userId)
+  }),
+  findVersion: (reportId, version) => db.query.reportVersion.findFirst({
+    where: and(eq(reportVersion.reportId, reportId), eq(reportVersion.version, version))
+  })
+});
 
-  const version = await db.query.reportVersion.findFirst({
-    where: and(eq(reportVersion.reportId, currentReport.id), eq(reportVersion.version, currentReport.latestVersion))
-  });
-  if (!version) return new Response("Not found", { status: 404 });
-
-  return new Response(version.markdown, {
-    headers: {
-      "content-type": "text/markdown; charset=utf-8",
-      "content-disposition": `attachment; filename="daily-arxiv-${currentReport.batchDate}.md"`
-    }
-  });
-}
+export const GET = withApiErrorHandling(get);

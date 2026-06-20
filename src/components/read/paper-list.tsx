@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { BookOpen, ExternalLink, Star } from "lucide-react";
-import type { ScoredPaper } from "@/lib/reports/scoring";
+import { explainScore, type ScoredPaper } from "@/lib/reports/scoring";
 import { cn } from "@/lib/utils";
 import { CrawlButton } from "@/components/arxiv/crawl-button";
 
@@ -10,7 +10,7 @@ type Props = {
   papers: ScoredPaper[];
   selectedPaperId: string | null;
   onSelect: (arxivId: string) => void;
-  paperStates: Record<string, { favorited: boolean; read: boolean }>;
+  paperStates: Record<string, { favorited: boolean; read: boolean; ignored?: boolean }>;
   totalPaperCount: number;
   hasCategories: boolean;
 };
@@ -56,6 +56,7 @@ export function PaperList({ papers, selectedPaperId, onSelect, paperStates, tota
         return (
           <button
             key={paper.arxivId}
+            data-paper-id={paper.arxivId}
             onClick={() => onSelect(paper.arxivId)}
             className={cn(
               "w-full rounded-xl px-4 py-3 text-left transition-all",
@@ -83,6 +84,9 @@ export function PaperList({ papers, selectedPaperId, onSelect, paperStates, tota
                   <Star className="h-3 w-3 fill-current" />
                 </span>
               )}
+            </div>
+            <div className="mt-2 line-clamp-2 text-xs leading-5 text-muted-foreground">
+              {explainScore(paper).join(" · ")}
             </div>
           </button>
         );
