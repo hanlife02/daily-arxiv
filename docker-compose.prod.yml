@@ -16,6 +16,8 @@ services:
       - BETTER_AUTH_URL=${BETTER_AUTH_URL:-http://localhost:3211}
       - HTTP_PROXY=${HTTP_PROXY:-}
       - HTTPS_PROXY=${HTTPS_PROXY:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${APP_PORT:-3211}:3000"
     volumes:
@@ -46,6 +48,8 @@ services:
       - BETTER_AUTH_URL=${BETTER_AUTH_URL:-http://localhost:3211}
       - HTTP_PROXY=${HTTP_PROXY:-}
       - HTTPS_PROXY=${HTTPS_PROXY:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ${DATA_DIR:-./data}/app:/app/data/app
       - ${DATA_DIR:-./data}/backups:/app/data/backups
