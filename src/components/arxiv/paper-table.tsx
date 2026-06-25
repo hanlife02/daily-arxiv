@@ -2,13 +2,15 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { BookOpen } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { BookOpen, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 type Paper = {
   arxivId: string;
   title: string;
+  abstract?: string;
+  authors?: string[];
   arxivUrl: string;
   categories: string[];
 };
@@ -33,12 +35,32 @@ function isEditableTarget(target: EventTarget | null) {
   return ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
 }
 
+function searchablePaperText(paper: Paper) {
+  return [
+    paper.arxivId,
+    paper.title,
+    paper.abstract ?? "",
+    paper.authors?.join(" ") ?? "",
+    paper.categories.join(" ")
+  ].join(" ").toLowerCase();
+}
+
 export function PaperTable({ papers, states }: Props) {
   const router = useRouter();
   const [pending, setPending] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const selectedSet = new Set(selectedIds);
-  const allSelected = papers.length > 0 && selectedIds.length === papers.length;
+  const searchTerms = useMemo(() => query.trim().toLowerCase().split(/\s+/).filter(Boolean), [query]);
+  const visiblePapers = useMemo(() => {
+    if (searchTerms.length === 0) return papers;
+    return papers.filter((paper) => {
+      const text = searchablePaperText(paper);
+      return searchTerms.every((term) => text.includes(term));
+    });
+  }, [papers, searchTerms]);
+  const visiblePaperIdSet = useMemo(() => new Set(visiblePapers.map((paper) => paper.arxivId)), [visiblePapers]);
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const allSelected = visiblePapers.length > 0 && selectedIds.length === visiblePapers.length;
 
   async function updateState(paperIds: string[], patch: PaperStatePatch, pendingKey: string, confirmLabel?: string) {
     if (paperIds.length === 0) return;
@@ -64,7 +86,7 @@ export function PaperTable({ papers, states }: Props) {
   }
 
   function toggleAll(selected: boolean) {
-    setSelectedIds(selected ? papers.map((paper) => paper.arxivId) : []);
+    setSelectedIds(selected ? visiblePapers.map((paper) => paper.arxivId) : []);
   }
 
   function paperLabels(state: PaperState | undefined) {
@@ -75,6 +97,13 @@ export function PaperTable({ papers, states }: Props) {
       state?.recommendedAt ? "已推荐" : null
     ].filter(Boolean);
   }
+
+  useEffect(() => {
+    setSelectedIds((current) => {
+      const next = current.filter((id) => visiblePaperIdSet.has(id));
+      return next.length === current.length ? current : next;
+    });
+  }, [visiblePaperIdSet]);
 
   useEffect(() => {
     function handleGlobalKeyDown(event: KeyboardEvent) {
@@ -89,7 +118,7 @@ export function PaperTable({ papers, states }: Props) {
       }
 
       const key = event.key.toLowerCase();
-      if (key === "a" && papers.length > 0) {
+      if (key === "a" && visiblePapers.length > 0) {
         event.preventDefault();
         toggleAll(!allSelected);
         return;
@@ -115,10 +144,37 @@ export function PaperTable({ papers, states }: Props) {
 
     window.addEventListener("keydown", handleGlobalKeyDown);
     return () => window.removeEventListener("keydown", handleGlobalKeyDown);
-  }, [allSelected, papers.length, pending, selectedIds]);
+  }, [allSelected, pending, selectedIds, visiblePapers]);
 
   return (
     <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="relative min-w-[16rem] flex-1">
+          <span className="sr-only">搜索论文关键词</span>
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            className="neu-input h-10 w-full px-9 text-sm"
+            placeholder="搜索标题、作者、摘要、arXiv ID 或板块"
+            value={query}
+            onChange={(event) => setQuery(event.currentTarget.value)}
+          />
+        </label>
+        <span className="text-sm text-muted-foreground">
+          {visiblePapers.length}/{papers.length} 篇
+        </span>
+        {query.trim() ? (
+          <Button
+            aria-label="清空搜索"
+            title="清空搜索"
+            type="button"
+            variant="secondary"
+            className="px-3"
+            onClick={() => setQuery("")}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        ) : null}
+      </div>
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/50 px-3 py-2 text-sm">
         <span className="text-muted-foreground">已选择 {selectedIds.length} 篇</span>
         <Button
@@ -182,7 +238,7 @@ export function PaperTable({ papers, states }: Props) {
           </tr>
         </thead>
         <tbody>
-          {papers.map((item) => {
+          {visiblePapers.map((item) => {
             const state = states.get(item.arxivId);
             const isFav = state?.favorited ?? false;
             const labels = paperLabels(state);
@@ -225,8 +281,13 @@ export function PaperTable({ papers, states }: Props) {
         </tbody>
       </table>
       </div>
+      {visiblePapers.length === 0 ? (
+        <p className="rounded-xl border border-border/50 px-4 py-6 text-center text-sm text-muted-foreground">
+          未找到匹配论文。
+        </p>
+      ) : null}
       <div className="grid gap-3 md:hidden">
-        {papers.map((item) => {
+        {visiblePapers.map((item) => {
           const state = states.get(item.arxivId);
           const isFav = state?.favorited ?? false;
           const labels = paperLabels(state);
