@@ -1,0 +1,134 @@
+{
+  "codeReview": {
+    "by": "lazycodex-code-reviewer",
+    "recommendation": "APPROVE",
+    "codeQualityStatus": "CLEAR",
+    "reportPath": ".omo/evidence/daily-summary-cli-boundary-code-review.md",
+    "evidence": "Prior blockers for malformed --limit and invalid --batch-date were fixed and reverified.",
+    "blockers": []
+  },
+  "manualQa": {
+    "by": "lazycodex-qa-executor",
+    "status": "passed",
+    "evidence": "CLI happy path, missing LLM config edge, malformed CLI input edges, quality log, and cleanup log were verified from artifacts.",
+    "surfaceEvidence": [
+      {
+        "id": "cli-happy",
+        "criterionRef": "C001",
+        "surface": "cli",
+        "invocation": "pnpm daily:summary -- --fixture tests/fixtures/arxiv-feed.xml --mock-llm --limit 1 --batch-date 2026-06-24 --output .omo/ulw-loop/evidence/daily-summary.md",
+        "verdict": "passed",
+        "artifactRefs": ["daily-summary.md", "daily-summary-cli.log"]
+      },
+      {
+        "id": "cli-missing-llm",
+        "criterionRef": "C002",
+        "surface": "cli",
+        "invocation": "pnpm daily:summary -- --fixture tests/fixtures/arxiv-feed.xml --limit 1 --batch-date 2026-06-24",
+        "verdict": "passed",
+        "artifactRefs": ["daily-summary-missing-llm.log"]
+      },
+      {
+        "id": "quality",
+        "criterionRef": "C003",
+        "surface": "cli",
+        "invocation": "DATABASE_URL=postgres://daily_arxiv:daily_arxiv@localhost:5433/daily_arxiv REDIS_URL=redis://localhost:6379 BETTER_AUTH_SECRET=build-only-secret-value-32-chars FIELD_ENCRYPTION_KEY=build-only-field-key pnpm quality",
+        "verdict": "passed",
+        "artifactRefs": ["quality.log"]
+      }
+    ],
+    "adversarialCases": [
+      {
+        "id": "malformed-limit",
+        "criterionRef": "C002",
+        "scenario": "--limit 1abc",
+        "expectedBehavior": "CLI rejects with a positive integer error before report generation.",
+        "verdict": "passed",
+        "artifactRefs": ["limit-malformed-green.log"]
+      },
+      {
+        "id": "invalid-calendar-date",
+        "criterionRef": "C002",
+        "scenario": "--batch-date 2026-99-99",
+        "expectedBehavior": "CLI rejects with a valid calendar date error before report generation.",
+        "verdict": "passed",
+        "artifactRefs": ["batch-date-invalid-green.log"]
+      }
+    ],
+    "artifactRefs": [
+      {
+        "id": "daily-summary.md",
+        "kind": "log",
+        "description": "Generated deterministic mock LLM daily report.",
+        "path": ".omo/ulw-loop/evidence/daily-summary.md"
+      },
+      {
+        "id": "daily-summary-cli.log",
+        "kind": "cli-transcript",
+        "description": "Successful daily:summary CLI transcript.",
+        "path": ".omo/ulw-loop/evidence/daily-summary-cli.log"
+      },
+      {
+        "id": "daily-summary-missing-llm.log",
+        "kind": "cli-transcript",
+        "description": "Missing LLM configuration edge transcript.",
+        "path": ".omo/ulw-loop/evidence/daily-summary-missing-llm.log"
+      },
+      {
+        "id": "limit-malformed-green.log",
+        "kind": "cli-transcript",
+        "description": "Malformed limit rejection transcript.",
+        "path": ".omo/ulw-loop/evidence/limit-malformed-green.log"
+      },
+      {
+        "id": "batch-date-invalid-green.log",
+        "kind": "cli-transcript",
+        "description": "Invalid calendar date rejection transcript.",
+        "path": ".omo/ulw-loop/evidence/batch-date-invalid-green.log"
+      },
+      {
+        "id": "quality.log",
+        "kind": "cli-transcript",
+        "description": "Typecheck, tests, and production build transcript.",
+        "path": ".omo/ulw-loop/evidence/quality.log"
+      },
+      {
+        "id": "cleanup.log",
+        "kind": "cli-transcript",
+        "description": "No daily-arxiv compose services or 3211/6379 listeners remain.",
+        "path": ".omo/ulw-loop/evidence/cleanup.log"
+      }
+    ]
+  },
+  "gateReview": {
+    "by": "lazycodex-gate-reviewer",
+    "recommendation": "APPROVE",
+    "reportPath": ".omo/ulw-loop/evidence/gate-review.md",
+    "evidence": "Final gate reviewer returned APPROVE after cleanup and boundary fixes.",
+    "blockers": []
+  },
+  "iteration": {
+    "fullRerun": true,
+    "status": "passed",
+    "rerunCommands": [
+      "pnpm exec vitest run tests/daily-summary.test.ts",
+      "pnpm typecheck",
+      "DATABASE_URL=postgres://daily_arxiv:daily_arxiv@localhost:5433/daily_arxiv REDIS_URL=redis://localhost:6379 BETTER_AUTH_SECRET=build-only-secret-value-32-chars FIELD_ENCRYPTION_KEY=build-only-field-key pnpm quality"
+    ],
+    "evidence": "Focused CLI tests, typecheck, full test suite, and Next production build passed after the boundary fix."
+  },
+  "criteriaCoverage": {
+    "totalCriteria": 3,
+    "passCount": 3,
+    "originalIntent": "User wanted the daily-arxiv project completed with parallel agents so it can fetch latest arXiv papers daily and use an LLM for reading summaries.",
+    "desiredOutcome": "Restored app plus a local CLI surface that proves latest-paper ingestion and LLM-style summary generation without requiring live DB/API keys.",
+    "userOutcomeReview": "The restored app retains existing web/API/worker/report/reading flows, and the new daily:summary command proves the core arXiv-to-summary loop through CLI artifacts.",
+    "adversarialClassesCovered": [
+      "missing_llm_config",
+      "malformed_limit",
+      "invalid_calendar_date",
+      "stale_or_deleted_worktree",
+      "leftover_runtime_cleanup"
+    ]
+  }
+}

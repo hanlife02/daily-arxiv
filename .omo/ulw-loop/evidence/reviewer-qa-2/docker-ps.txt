@@ -1,0 +1,5 @@
+sub2api-dev 127.0.0.1:8080->8080/tcp
+sub2api-postgres-dev 5432/tcp
+sub2api-redis-dev 6379/tcp
+
+exit_code=0

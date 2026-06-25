@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "createdAt": "2026-06-24T14:39:45.101Z",
+  "updatedAt": "2026-06-24T15:29:57.348Z",
+  "briefPath": ".omo/ulw-loop/019efa10-4e24-71b1-b1f7-f5c307e38300/brief.md",
+  "goalsPath": ".omo/ulw-loop/019efa10-4e24-71b1-b1f7-f5c307e38300/goals.json",
+  "ledgerPath": ".omo/ulw-loop/019efa10-4e24-71b1-b1f7-f5c307e38300/ledger.jsonl",
+  "codexGoalMode": "aggregate",
+  "goals": [
+    {
+      "id": "G001-agents-daily-arxiv-arxiv-llm",
+      "title": "用户要求：用并行 agents 完成本 daily-arxiv 项目：每天获取 arXiv 最新论文，并接入 LLM 做阅读总结摘要。当前...",
+      "objective": "用户要求：用并行 agents 完成本 daily-arxiv 项目：每天获取 arXiv 最新论文，并接入 LLM 做阅读总结摘要。当前仓库 main 最新提交清空了工作树，但上一提交 965a177 包含完整 Next/TypeScript 实现，可作为恢复和收敛基线。交付物必须可运行、可测试，并通过 CLI/服务真实表面证明每日抓取和 LLM 摘要流程可用。",
+      "status": "complete",
+      "successCriteria": [
+        {
+          "id": "C001",
+          "scenario": "CLI happy path: pnpm daily:summary -- --fixture tests/fixtures/arxiv-feed.xml --mock-llm --limit 1 --batch-date 2026-06-24 --output .omo/ulw-loop/evidence/daily-summary.md exits 0 and prints/writes Markdown for arXiv 2606.12345 with a Chinese mock LLM summary.",
+          "userModel": "happy",
+          "expectedEvidence": ".omo/ulw-loop/evidence/daily-summary.md plus terminal transcript from the successful command",
+          "essential": true,
+          "capturedEvidence": ".omo/ulw-loop/evidence/daily-summary.md (668 bytes) and .omo/ulw-loop/evidence/daily-summary-cli.log (912 bytes): daily:summary fixture + mock LLM exited 0 and generated Markdown for arXiv 2606.12345. cleanup: no server/tmux/container/browser spawned; CLI exited; agents 019efa13-3aa3, 019efa13-49c6, 019efa13-65a4, 019efa16, 019efa1a closed.",
+          "status": "pass",
+          "capturedAt": "2026-06-24T15:01:58.189Z"
+        },
+        {
+          "id": "C002",
+          "scenario": "CLI edge path: pnpm daily:summary -- --fixture tests/fixtures/arxiv-feed.xml --limit 1 --batch-date 2026-06-24 exits non-zero without --mock-llm or LLM_BASE_URL/LLM_API_KEY/LLM_MODEL, and prints exact operator guidance.",
+          "userModel": "edge",
+          "expectedEvidence": "Terminal transcript showing exit code 1 and message: Set LLM_BASE_URL, LLM_API_KEY, and LLM_MODEL, or pass --mock-llm.",
+          "essential": true,
+          "capturedEvidence": ".omo/ulw-loop/evidence/daily-summary-missing-llm.log (313 bytes): daily:summary fixture without --mock-llm exited 1 and printed required LLM env guidance. cleanup: no server/tmux/container/browser spawned; CLI exited; no temp runtime state.",
+          "status": "pass",
+          "capturedAt": "2026-06-24T15:02:09.942Z"
+        },
+        {
+          "id": "C003",
+          "scenario": "Regression gate: DATABASE_URL=postgres://daily_arxiv:daily_arxiv@localhost:5433/daily_arxiv REDIS_URL=redis://localhost:6379 BETTER_AUTH_SECRET=build-only-secret-value-32-chars FIELD_ENCRYPTION_KEY=build-only-field-key pnpm quality exits 0, proving typecheck, all unit tests, and production build still pass.",
+          "userModel": "regression",
+          "expectedEvidence": "Terminal transcript from pnpm quality showing 24 test files / 135 tests passed, Next build compiled successfully, and Quality gate passed.",
+          "essential": false,
+          "capturedEvidence": ".omo/ulw-loop/evidence/quality.log (6919 bytes): pnpm quality passed with tsc --noEmit, 24 test files / 135 tests passed, Next production build compiled successfully, Docker smoke skipped by script default. cleanup: no server/tmux/container/browser spawned; build process exited; no containers started.",
+          "status": "pass",
+          "capturedAt": "2026-06-24T15:02:18.506Z"
+        }
+      ],
+      "attempt": 1,
+      "createdAt": "2026-06-24T14:39:45.101Z",
+      "updatedAt": "2026-06-24T15:29:57.348Z",
+      "startedAt": "2026-06-24T14:59:56.203Z",
+      "completedAt": "2026-06-24T15:29:57.348Z",
+      "evidence": "C001/C002/C003 pass with artifacts under .omo/ulw-loop/evidence; code review APPROVE, QA APPROVE, gate APPROVE; quality gate JSON at .omo/ulw-loop/evidence/quality-gate.json."
+    }
+  ],
+  "codexObjective": "Complete the durable ulw-loop plan in .omo/ulw-loop/019efa10-4e24-71b1-b1f7-f5c307e38300/goals.json, including later accepted/appended stories, under the original brief constraints; use .omo/ulw-loop/019efa10-4e24-71b1-b1f7-f5c307e38300/ledger.jsonl as the audit trail.",
+  "aggregateCompletion": {
+    "status": "complete",
+    "completedAt": "2026-06-24T15:29:57.348Z",
+    "evidence": "C001/C002/C003 pass with artifacts under .omo/ulw-loop/evidence; code review APPROVE, QA APPROVE, gate APPROVE; quality gate JSON at .omo/ulw-loop/evidence/quality-gate.json.",
+    "codexGoal": {
+      "goal": {
+        "threadId": "019efa10-4e24-71b1-b1f7-f5c307e38300",
+        "objective": "Complete the durable ulw-loop plan in .omo/ulw-loop/019efa10-4e24-71b1-b1f7-f5c307e38300/goals.json, including later accepted/appended stories, under the original brief constraints; use .omo/ulw-loop/019efa10-4e24-71b1-b1f7-f5c307e38300/ledger.jsonl as the audit trail.",
+        "status": "complete",
+        "tokensUsed": 1308,
+        "timeUsedSeconds": 6
+      }
+    }
+  }
+}

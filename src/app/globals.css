@@ -1,0 +1,249 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-border: hsl(var(--border));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-shadow-dark: hsl(var(--shadow-dark));
+  --color-shadow-light: hsl(var(--shadow-light));
+}
+
+:root {
+  --background: 216 20% 88%;
+  --foreground: 215 25% 27%;
+  --card: 216 20% 88%;
+  --card-foreground: 215 25% 27%;
+  --muted: 216 16% 80%;
+  --muted-foreground: 217 14% 52%;
+  --border: 216 16% 78%;
+  --accent: 217 40% 48%;
+  --accent-foreground: 0 0% 100%;
+  --shadow-dark: 216 14% 72%;
+  --shadow-light: 0 0% 100%;
+}
+
+.dark {
+  --background: 220 16% 14%;
+  --foreground: 216 18% 82%;
+  --card: 220 16% 17%;
+  --card-foreground: 216 18% 82%;
+  --muted: 220 14% 22%;
+  --muted-foreground: 218 14% 56%;
+  --border: 220 14% 24%;
+  --accent: 217 45% 55%;
+  --accent-foreground: 0 0% 100%;
+  --shadow-dark: 220 12% 10%;
+  --shadow-light: 220 14% 20%;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+body {
+  min-height: 100vh;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-feature-settings: "rlig" 1, "calt" 1;
+}
+
+/* ── Neumorphism Utilities ── */
+.neu-raised {
+  background: hsl(var(--card));
+  border-radius: 16px;
+  box-shadow:
+    6px 6px 12px hsl(var(--shadow-dark)),
+    -6px -6px 12px hsl(var(--shadow-light));
+}
+
+.neu-raised-sm {
+  background: hsl(var(--card));
+  border-radius: 12px;
+  box-shadow:
+    3px 3px 6px hsl(var(--shadow-dark)),
+    -3px -3px 6px hsl(var(--shadow-light));
+}
+
+.neu-inset {
+  background: hsl(var(--card));
+  border-radius: 12px;
+  box-shadow:
+    inset 3px 3px 6px hsl(var(--shadow-dark)),
+    inset -3px -3px 6px hsl(var(--shadow-light));
+}
+
+.neu-flat {
+  background: hsl(var(--background));
+  border-radius: 16px;
+  box-shadow:
+    6px 6px 12px hsl(var(--shadow-dark)),
+    -6px -6px 12px hsl(var(--shadow-light));
+}
+
+.neu-btn {
+  background: hsl(var(--card));
+  border-radius: 12px;
+  box-shadow:
+    4px 4px 8px hsl(var(--shadow-dark)),
+    -4px -4px 8px hsl(var(--shadow-light));
+  transition: all 0.2s ease;
+  border: none;
+  cursor: pointer;
+}
+
+.neu-btn:hover {
+  box-shadow:
+    2px 2px 4px hsl(var(--shadow-dark)),
+    -2px -2px 4px hsl(var(--shadow-light));
+}
+
+.neu-btn:active,
+.neu-btn-active {
+  box-shadow:
+    inset 3px 3px 6px hsl(var(--shadow-dark)),
+    inset -3px -3px 6px hsl(var(--shadow-light));
+}
+
+.neu-btn-primary {
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+  border-radius: 12px;
+  box-shadow:
+    4px 4px 8px hsl(var(--shadow-dark)),
+    -4px -4px 8px hsl(var(--shadow-light));
+  transition: all 0.2s ease;
+  border: none;
+  cursor: pointer;
+}
+
+.neu-btn-primary:hover {
+  box-shadow:
+    2px 2px 4px hsl(var(--shadow-dark)),
+    -2px -2px 4px hsl(var(--shadow-light));
+}
+
+.neu-btn-primary:active {
+  box-shadow:
+    inset 3px 3px 6px hsl(217 40% 38%),
+    inset -3px -3px 6px hsl(217 40% 58%);
+}
+
+.neu-input {
+  background: hsl(var(--card));
+  border-radius: 12px;
+  box-shadow:
+    inset 3px 3px 6px hsl(var(--shadow-dark)),
+    inset -3px -3px 6px hsl(var(--shadow-light));
+  border: none;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.neu-input:focus {
+  box-shadow:
+    inset 4px 4px 8px hsl(var(--shadow-dark)),
+    inset -4px -4px 8px hsl(var(--shadow-light));
+}
+
+.neu-card {
+  background: hsl(var(--background));
+  border-radius: 20px;
+  box-shadow:
+    8px 8px 16px hsl(var(--shadow-dark)),
+    -8px -8px 16px hsl(var(--shadow-light));
+}
+
+.neu-card-inner {
+  background: hsl(var(--background));
+  border-radius: 16px;
+  box-shadow:
+    6px 6px 12px hsl(var(--shadow-dark)),
+    -6px -6px 12px hsl(var(--shadow-light));
+}
+
+/* ── Neumorphic Toggle ── */
+.neu-toggle-track {
+  background: hsl(var(--card));
+  border-radius: 9999px;
+  box-shadow:
+    inset 3px 3px 6px hsl(var(--shadow-dark)),
+    inset -3px -3px 6px hsl(var(--shadow-light));
+  transition: all 0.3s ease;
+}
+
+.neu-toggle-thumb {
+  background: hsl(var(--background));
+  border-radius: 9999px;
+  box-shadow:
+    2px 2px 4px hsl(var(--shadow-dark)),
+    -2px -2px 4px hsl(var(--shadow-light));
+  transition: all 0.3s ease;
+}
+
+/* ── Neumorphic Progress Ring ── */
+.neu-progress-ring {
+  border-radius: 50%;
+  box-shadow:
+    inset 3px 3px 6px hsl(var(--shadow-dark)),
+    inset -3px -3px 6px hsl(var(--shadow-light));
+}
+
+/* ── Neumorphic Tabs ── */
+.neu-tabs {
+  background: hsl(var(--background));
+  border-radius: 14px;
+  box-shadow:
+    inset 2px 2px 5px hsl(var(--shadow-dark)),
+    inset -2px -2px 5px hsl(var(--shadow-light));
+}
+
+.neu-tab {
+  border-radius: 10px;
+  box-shadow:
+    2px 2px 4px hsl(var(--shadow-dark)),
+    -2px -2px 4px hsl(var(--shadow-light));
+  transition: all 0.2s ease;
+}
+
+.neu-tab-active {
+  box-shadow:
+    inset 2px 2px 4px hsl(var(--shadow-dark)),
+    inset -2px -2px 4px hsl(var(--shadow-light));
+}
+
+/* ── Neumorphic Palette Circle ── */
+.neu-circle {
+  border-radius: 50%;
+  box-shadow:
+    2px 2px 4px hsl(var(--shadow-dark)),
+    -2px -2px 4px hsl(var(--shadow-light));
+  transition: all 0.2s ease;
+}
+
+.neu-circle:active {
+  box-shadow:
+    inset 2px 2px 4px hsl(var(--shadow-dark)),
+    inset -2px -2px 4px hsl(var(--shadow-light));
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: hsl(var(--background));
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted));
+  border-radius: 4px;
+}

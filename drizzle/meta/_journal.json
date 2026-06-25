@@ -1,0 +1,48 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1781445009294,
+      "tag": "0000_conscious_landau",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1781715851000,
+      "tag": "0001_daily_arxiv_operational_loop",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781787000000,
+      "tag": "0002_admin_llm_limits",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1781787600000,
+      "tag": "0003_user_llm_limit_overrides",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1781788200000,
+      "tag": "0004_role_llm_limit_overrides",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1781788800000,
+      "tag": "0005_llm_usage_tokens",
+      "breakpoints": true
+    }
+  ]
+}

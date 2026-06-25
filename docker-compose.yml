@@ -1,0 +1,82 @@
+services:
+  app:
+    build: .
+    command: sh -c "pnpm db:push && pnpm start"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgres://daily_arxiv:daily_arxiv@postgres:5432/daily_arxiv
+      - REDIS_URL=redis://redis:6379
+      - BETTER_AUTH_RATE_LIMIT_ENABLED=${BETTER_AUTH_RATE_LIMIT_ENABLED:-}
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+    ports:
+      - "3211:3000"
+    volumes:
+      - ./data/app:/app/data/app
+      - ./data/backups:/app/data/backups:ro
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  worker:
+    build: .
+    command: pnpm worker
+    depends_on:
+      app:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgres://daily_arxiv:daily_arxiv@postgres:5432/daily_arxiv
+      - REDIS_URL=redis://redis:6379
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+    volumes:
+      - ./data/app:/app/data/app
+      - ./data/backups:/app/data/backups
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"const fs=require('fs');const p=process.env.WORKER_HEARTBEAT_PATH||'/app/data/app/worker-heartbeat.json';const stale=Number(process.env.WORKER_HEARTBEAT_STALE_MS||120000);const h=JSON.parse(fs.readFileSync(p,'utf8'));process.exit(Date.now()-Date.parse(h.updatedAt)<=stale?0:1)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: daily_arxiv
+      POSTGRES_USER: daily_arxiv
+      POSTGRES_PASSWORD: daily_arxiv
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U daily_arxiv -d daily_arxiv"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - ./data/redis:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

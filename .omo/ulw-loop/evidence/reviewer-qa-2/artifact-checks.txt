@@ -1,0 +1,18 @@
+artifact byte counts
+     668 .omo/ulw-loop/evidence/daily-summary.md
+     912 .omo/ulw-loop/evidence/daily-summary-cli.log
+     313 .omo/ulw-loop/evidence/daily-summary-missing-llm.log
+    6919 .omo/ulw-loop/evidence/quality.log
+     265 .omo/ulw-loop/evidence/cleanup.log
+    9077 total
+
+marker checks
+5:状态：已生成摘要。
+2:> daily-arxiv@1.2.0 daily:summary /Users/hanlife02/code/daily-arxiv
+5:Set LLM_BASE_URL, LLM_API_KEY, and LLM_MODEL, or pass --mock-llm.
+8:exit_code=1
+104:Quality gate passed.
+1:docker compose ps
+9:lsof 3211/6379
+
+exit_code=0

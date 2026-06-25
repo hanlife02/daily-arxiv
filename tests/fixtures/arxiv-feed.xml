@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom">
+  <title>ArXiv Query: cat:cs.CL</title>
+  <id>http://arxiv.org/api/query?search_query=cat:cs.CL</id>
+  <updated>2026-06-24T00:00:00-04:00</updated>
+  <entry>
+    <id>http://arxiv.org/abs/2606.12345v1</id>
+    <updated>2026-06-24T02:10:00Z</updated>
+    <published>2026-06-24T02:10:00Z</published>
+    <title>Efficient Agents for Scientific Literature Review</title>
+    <summary>
+      We introduce an efficient benchmark and open-source agent for scientific
+      literature review over arXiv papers.
+    </summary>
+    <author>
+      <name>Ada Lovelace</name>
+    </author>
+    <author>
+      <name>Alan Turing</name>
+    </author>
+    <arxiv:primary_category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <link href="http://arxiv.org/abs/2606.12345v1" rel="alternate" type="text/html"/>
+    <link title="pdf" href="http://arxiv.org/pdf/2606.12345v1" rel="related" type="application/pdf"/>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2606.23456v1</id>
+    <updated>2026-06-24T01:05:00Z</updated>
+    <published>2026-06-24T01:05:00Z</published>
+    <title>Robust Retrieval Models for Mathematics</title>
+    <summary>
+      This paper studies robust retrieval models and evaluation methods for math-heavy queries.
+    </summary>
+    <author>
+      <name>Grace Hopper</name>
+    </author>
+    <arxiv:primary_category term="cs.IR" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.IR" scheme="http://arxiv.org/schemas/atom"/>
+    <link href="http://arxiv.org/abs/2606.23456v1" rel="alternate" type="text/html"/>
+    <link title="pdf" href="http://arxiv.org/pdf/2606.23456v1" rel="related" type="application/pdf"/>
+  </entry>
+</feed>
