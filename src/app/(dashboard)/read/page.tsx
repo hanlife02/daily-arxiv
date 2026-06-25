@@ -38,10 +38,13 @@ export default async function ReadPage({ searchParams }: ReadPageProps) {
     }
   }
 
-  // Fetch S2 data for matched papers (1 batch request)
-  const s2Data = matched.length > 0
-    ? await fetchCachedS2Batch(matched.map((p) => p.arxivId))
-    : new Map();
+  const [s2Data, states, llmConfig] = await Promise.all([
+    matched.length > 0 ? fetchCachedS2Batch(matched.map((p) => p.arxivId)) : Promise.resolve(new Map()),
+    db.query.userPaperState.findMany({
+      where: eq(userPaperState.userId, user.id)
+    }),
+    getDecryptedLlmConfig(user.id)
+  ]);
 
   const scoredPapers = advancedRankPapers(
     matched,
@@ -55,12 +58,7 @@ export default async function ReadPage({ searchParams }: ReadPageProps) {
     s2Data
   );
 
-  const states = await db.query.userPaperState.findMany({
-    where: eq(userPaperState.userId, user.id)
-  });
   const stateMap = Object.fromEntries(states.map((s) => [s.paperId, { favorited: s.favorited, read: s.read, ignored: s.ignored }]));
-
-  const llmConfig = await getDecryptedLlmConfig(user.id);
 
   return (
     <PaperReader

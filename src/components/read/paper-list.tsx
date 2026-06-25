@@ -1,19 +1,69 @@
 "use client";
 
 import Link from "next/link";
+import { memo } from "react";
 import { BookOpen, ExternalLink, Star } from "lucide-react";
 import { explainScore, type ScoredPaper } from "@/lib/reports/scoring";
 import { cn } from "@/lib/utils";
 import { CrawlButton } from "@/components/arxiv/crawl-button";
 
+type PaperState = { readonly favorited: boolean; readonly read: boolean; readonly ignored?: boolean };
+
 type Props = {
-  papers: ScoredPaper[];
+  papers: readonly ScoredPaper[];
   selectedPaperId: string | null;
   onSelect: (arxivId: string) => void;
-  paperStates: Record<string, { favorited: boolean; read: boolean; ignored?: boolean }>;
+  paperStates: Record<string, PaperState>;
   totalPaperCount: number;
   hasCategories: boolean;
 };
+
+type PaperListItemProps = {
+  readonly paper: ScoredPaper;
+  readonly state: PaperState | undefined;
+  readonly isSelected: boolean;
+  readonly onSelect: (arxivId: string) => void;
+};
+
+const PaperListItem = memo(function PaperListItem({ paper, state, isSelected, onSelect }: PaperListItemProps) {
+  return (
+    <button
+      data-paper-id={paper.arxivId}
+      onClick={() => onSelect(paper.arxivId)}
+      className={cn(
+        "w-full rounded-xl px-4 py-3 text-left transition-all",
+        isSelected ? "neu-raised-sm" : "neu-card hover:shadow-md"
+      )}
+      type="button"
+    >
+      <div className="line-clamp-2 text-sm font-medium leading-snug">
+        {paper.title}
+      </div>
+      <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <span className="neu-inset rounded-md px-1.5 py-0.5">
+          {paper.primaryCategory}
+        </span>
+        <span className="neu-inset rounded-md px-1.5 py-0.5">
+          {paper.score.toFixed(1)} 分
+        </span>
+        {state?.read && (
+          <span className="inline-flex items-center gap-0.5 text-accent">
+            <BookOpen className="h-3 w-3" />
+            已读
+          </span>
+        )}
+        {state?.favorited && (
+          <span className="inline-flex items-center gap-0.5 text-yellow-500">
+            <Star className="h-3 w-3 fill-current" />
+          </span>
+        )}
+      </div>
+      <div className="mt-2 line-clamp-2 text-xs leading-5 text-muted-foreground">
+        {explainScore(paper).join(" · ")}
+      </div>
+    </button>
+  );
+});
 
 export function PaperList({ papers, selectedPaperId, onSelect, paperStates, totalPaperCount, hasCategories }: Props) {
   if (papers.length === 0) {
@@ -54,41 +104,13 @@ export function PaperList({ papers, selectedPaperId, onSelect, paperStates, tota
         const isSelected = paper.arxivId === selectedPaperId;
 
         return (
-          <button
+          <PaperListItem
             key={paper.arxivId}
-            data-paper-id={paper.arxivId}
-            onClick={() => onSelect(paper.arxivId)}
-            className={cn(
-              "w-full rounded-xl px-4 py-3 text-left transition-all",
-              isSelected ? "neu-raised-sm" : "neu-card hover:shadow-md"
-            )}
-          >
-            <div className="line-clamp-2 text-sm font-medium leading-snug">
-              {paper.title}
-            </div>
-            <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <span className="neu-inset rounded-md px-1.5 py-0.5">
-                {paper.primaryCategory}
-              </span>
-              <span className="neu-inset rounded-md px-1.5 py-0.5">
-                {paper.score.toFixed(1)} 分
-              </span>
-              {state?.read && (
-                <span className="inline-flex items-center gap-0.5 text-accent">
-                  <BookOpen className="h-3 w-3" />
-                  已读
-                </span>
-              )}
-              {state?.favorited && (
-                <span className="inline-flex items-center gap-0.5 text-yellow-500">
-                  <Star className="h-3 w-3 fill-current" />
-                </span>
-              )}
-            </div>
-            <div className="mt-2 line-clamp-2 text-xs leading-5 text-muted-foreground">
-              {explainScore(paper).join(" · ")}
-            </div>
-          </button>
+            paper={paper}
+            state={state}
+            isSelected={isSelected}
+            onSelect={onSelect}
+          />
         );
       })}
     </div>

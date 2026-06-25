@@ -1,12 +1,12 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import type { ScoredPaper } from "@/lib/reports/scoring";
 import { PaperList } from "@/components/read/paper-list";
 import { ChatPanel } from "@/components/read/chat-panel";
 import { OriginalPaperPanel } from "@/components/read/original-paper-panel";
+import { usePaperKeyboardNavigation } from "@/components/read/paper-reader-keyboard";
 import {
   findExistingPaperId,
   firstPaperId,
@@ -33,25 +33,24 @@ type Props = {
 const AUTO_READ_DELAY_MS = 10_000;
 const DEFAULT_PAPER_STATE: PaperState = { favorited: false, read: false, ignored: false };
 
-function isEditableTarget(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) return false;
-  if (target.isContentEditable) return true;
-  return ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
-}
-
 export function PaperReader({ papers, paperStates, llmConfigured, totalPaperCount, hasCategories, initialPaperId }: Props) {
-  const router = useRouter();
   const paperIdSet = useMemo(() => new Set(papers.map((paper) => paper.arxivId)), [papers]);
   const initialSelectedId = findExistingPaperId(papers, initialPaperId);
   const listRef = useRef<HTMLDivElement>(null);
   const [states, setStates] = useState(paperStates);
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
   const [selectionReady, setSelectionReady] = useState(() => Boolean(initialSelectedId) || papers.length === 0);
-  const [mobileShowPaper, setMobileShowPaper] = useState(false);
+  const [mobileShowPaper, setMobileShowPaper] = useState(() => Boolean(initialSelectedId));
   const [listCollapsed, setListCollapsed] = useState(() => readLocalStorage(READ_LIST_COLLAPSED_KEY) === "1");
 
-  const visiblePapers = papers.filter((paper) => paper.arxivId === selectedId || !states[paper.arxivId]?.ignored);
-  const selectedPaper = selectedId ? visiblePapers.find((p) => p.arxivId === selectedId) ?? null : null;
+  const visiblePapers = useMemo(
+    () => papers.filter((paper) => paper.arxivId === selectedId || !states[paper.arxivId]?.ignored),
+    [papers, selectedId, states]
+  );
+  const selectedPaper = useMemo(
+    () => selectedId ? visiblePapers.find((p) => p.arxivId === selectedId) ?? null : null,
+    [selectedId, visiblePapers]
+  );
   const selectedPaperState = selectedPaper ? states[selectedPaper.arxivId] ?? DEFAULT_PAPER_STATE : DEFAULT_PAPER_STATE;
 
   const updatePaperState = useCallback(async (paperId: string, next: PaperStatePatch) => {
@@ -70,20 +69,21 @@ export function PaperReader({ papers, paperStates, llmConfigured, totalPaperCoun
     }).catch(() => undefined);
   }, []);
 
-  function toggleListCollapsed() {
+  const toggleListCollapsed = useCallback(() => {
     setListCollapsed((current) => {
       const next = !current;
       writeLocalStorage(READ_LIST_COLLAPSED_KEY, next ? "1" : "0");
       return next;
     });
-  }
+  }, []);
 
   const persistSelectedPaper = useCallback((id: string) => {
     writeSelectedPaperId(id);
     const params = new URLSearchParams(window.location.search);
+    if (params.get("paper") === id) return;
     params.set("paper", id);
-    router.replace(`/read?${params.toString()}`, { scroll: false });
-  }, [router]);
+    window.history.replaceState(window.history.state, "", `${window.location.pathname}?${params.toString()}${window.location.hash}`);
+  }, []);
 
   useEffect(() => {
     const querySelectedId = findExistingPaperId(papers, initialPaperId);
@@ -153,39 +153,42 @@ export function PaperReader({ papers, paperStates, llmConfigured, totalPaperCoun
     };
   }, [listCollapsed, mobileShowPaper, selectedId, visiblePapers.length]);
 
-  function handleSelect(id: string) {
+  const handleSelect = useCallback((id: string) => {
     persistSelectedPaper(id);
     setSelectedId(id);
     setMobileShowPaper(true);
-  }
+  }, [persistSelectedPaper]);
 
-  useEffect(() => {
-    function selectByOffset(offset: number) {
-      if (visiblePapers.length === 0) return;
-      const currentIndex = visiblePapers.findIndex((paper) => paper.arxivId === selectedPaper?.arxivId);
-      const nextIndex = Math.min(Math.max(currentIndex + offset, 0), visiblePapers.length - 1);
-      const next = visiblePapers[nextIndex];
-      if (!next || next.arxivId === selectedPaper?.arxivId) return;
-      handleSelect(next.arxivId);
-    }
+  const showListOnMobile = useCallback(() => {
+    setMobileShowPaper(false);
+  }, []);
 
-    function handleGlobalKeyDown(event: KeyboardEvent) {
-      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || isEditableTarget(event.target)) {
-        return;
-      }
-      if (event.key === "ArrowDown" || event.key.toLowerCase() === "j") {
-        event.preventDefault();
-        selectByOffset(1);
-      }
-      if (event.key === "ArrowUp" || event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        selectByOffset(-1);
-      }
-    }
+  const updateSelectedPaperState = useCallback((next: PaperStatePatch) => {
+    if (!selectedPaper) return;
+    void updatePaperState(selectedPaper.arxivId, next);
+  }, [selectedPaper, updatePaperState]);
 
-    window.addEventListener("keydown", handleGlobalKeyDown);
-    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
-  }, [selectedPaper?.arxivId, visiblePapers]);
+  const listControl = useMemo(() => {
+    if (!listCollapsed) return null;
+    return (
+      <button
+        type="button"
+        onClick={toggleListCollapsed}
+        className="neu-btn inline-flex h-9 items-center gap-2 px-3 text-xs text-muted-foreground hover:text-foreground"
+        aria-label="展开论文列表"
+        title="展开论文列表"
+      >
+        <PanelLeftOpen className="h-4 w-4" />
+        论文列表
+      </button>
+    );
+  }, [listCollapsed, toggleListCollapsed]);
+
+  usePaperKeyboardNavigation({
+    visiblePapers,
+    selectedPaperId: selectedPaper?.arxivId ?? null,
+    onSelect: handleSelect
+  });
 
   return (
     <div
@@ -233,19 +236,10 @@ export function PaperReader({ papers, paperStates, llmConfigured, totalPaperCoun
         {selectedPaper ? (
           <OriginalPaperPanel
             paper={selectedPaper}
-            onBack={() => setMobileShowPaper(false)}
-            listControl={listCollapsed ? (
-              <button
-                type="button"
-                onClick={toggleListCollapsed}
-                className="neu-btn inline-flex h-9 items-center gap-2 px-3 text-xs text-muted-foreground hover:text-foreground"
-                aria-label="展开论文列表"
-                title="展开论文列表"
-              >
-                <PanelLeftOpen className="h-4 w-4" />
-                论文列表
-              </button>
-            ) : null}
+            onBack={showListOnMobile}
+            listControl={listControl}
+            paperState={selectedPaperState}
+            onPaperStateChange={updateSelectedPaperState}
           />
         ) : (
           <div className="neu-card flex h-full min-h-[28rem] items-center justify-center">
@@ -263,8 +257,8 @@ export function PaperReader({ papers, paperStates, llmConfigured, totalPaperCoun
           <ChatPanel
             paper={selectedPaper}
             paperState={selectedPaperState}
-            onPaperStateChange={(next) => updatePaperState(selectedPaper.arxivId, next)}
-            onBack={() => setMobileShowPaper(false)}
+            onPaperStateChange={updateSelectedPaperState}
+            onBack={showListOnMobile}
             llmConfigured={llmConfigured}
           />
         ) : (

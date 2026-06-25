@@ -1,7 +1,7 @@
 "use client";
 
-import { ArrowLeft, ExternalLink, FileText } from "lucide-react";
-import type { ReactNode } from "react";
+import { ArrowLeft, BookOpen, ExternalLink, EyeOff, FileText, Star } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ScoredPaper } from "@/lib/reports/scoring";
 import { explainScore } from "@/lib/reports/scoring";
 import { cn } from "@/lib/utils";
@@ -10,7 +10,11 @@ type OriginalPaperPanelProps = {
   paper: ScoredPaper;
   onBack: () => void;
   listControl?: ReactNode;
+  paperState?: OriginalPaperState;
+  onPaperStateChange?: (state: Partial<OriginalPaperState>) => void | Promise<void>;
 };
+
+type OriginalPaperState = { favorited: boolean; read: boolean; ignored?: boolean };
 
 const dateFormatter = new Intl.DateTimeFormat("zh-CN", {
   year: "numeric",
@@ -18,8 +22,70 @@ const dateFormatter = new Intl.DateTimeFormat("zh-CN", {
   day: "2-digit"
 });
 
-export function OriginalPaperPanel({ paper, onBack, listControl }: OriginalPaperPanelProps) {
+const PDF_IFRAME_LOAD_DELAY_MS = 120;
+const PDF_IFRAME_ROOT_MARGIN = "160px";
+
+function isVisibleIntersection(entry: IntersectionObserverEntry) {
+  return entry.isIntersecting && entry.boundingClientRect.width > 0 && entry.boundingClientRect.height > 0;
+}
+
+function useVisiblePdfUrl(pdfUrl: string | undefined) {
+  const pdfContainerRef = useRef<HTMLElement>(null);
+  const [visiblePdfUrl, setVisiblePdfUrl] = useState<string | undefined>();
+
+  useEffect(() => {
+    setVisiblePdfUrl(undefined);
+    if (!pdfUrl) return;
+
+    const container = pdfContainerRef.current;
+    if (!container) return;
+
+    let timeoutId: number | undefined;
+    const schedulePdfLoad = () => {
+      if (timeoutId !== undefined) return;
+      timeoutId = window.setTimeout(() => setVisiblePdfUrl(pdfUrl), PDF_IFRAME_LOAD_DELAY_MS);
+    };
+
+    if (!("IntersectionObserver" in window)) {
+      schedulePdfLoad();
+      return () => {
+        if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+      };
+    }
+
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some(isVisibleIntersection)) return;
+      observer.disconnect();
+      schedulePdfLoad();
+    }, { rootMargin: PDF_IFRAME_ROOT_MARGIN });
+
+    observer.observe(container);
+
+    return () => {
+      observer.disconnect();
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+    };
+  }, [pdfUrl]);
+
+  return {
+    pdfContainerRef,
+    visiblePdfUrl: visiblePdfUrl === pdfUrl ? visiblePdfUrl : undefined
+  };
+}
+
+export function OriginalPaperPanel({
+  paper,
+  onBack,
+  listControl,
+  paperState,
+  onPaperStateChange
+}: OriginalPaperPanelProps) {
   const scoreReasons = explainScore(paper);
+  const { pdfContainerRef, visiblePdfUrl } = useVisiblePdfUrl(paper.pdfUrl);
+
+  function updatePaperState(next: Partial<OriginalPaperState>) {
+    void onPaperStateChange?.(next);
+  }
 
   return (
     <article className="neu-card flex h-full min-h-0 flex-col overflow-hidden">
@@ -46,7 +112,44 @@ export function OriginalPaperPanel({ paper, onBack, listControl }: OriginalPaper
                 <span>{dateFormatter.format(paper.publishedAt)}</span>
                 <span>{paper.score.toFixed(1)} 分</span>
               </div>
-              <div className="flex flex-shrink-0 gap-2">
+              <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:flex-shrink-0 sm:justify-end">
+                {paperState ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => updatePaperState({ read: !paperState.read })}
+                      className={cn(
+                        "neu-btn inline-flex h-9 items-center gap-1.5 px-3 text-xs",
+                        paperState.read ? "text-accent" : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      <BookOpen className="h-3.5 w-3.5" />
+                      已读
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updatePaperState({ favorited: !paperState.favorited })}
+                      className={cn(
+                        "neu-btn inline-flex h-9 items-center gap-1.5 px-3 text-xs",
+                        paperState.favorited ? "text-yellow-500" : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      <Star className={cn("h-3.5 w-3.5", paperState.favorited && "fill-current")} />
+                      收藏
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updatePaperState({ ignored: !paperState.ignored })}
+                      className={cn(
+                        "neu-btn inline-flex h-9 items-center gap-1.5 px-3 text-xs",
+                        paperState.ignored ? "text-red-500" : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      <EyeOff className="h-3.5 w-3.5" />
+                      忽略
+                    </button>
+                  </>
+                ) : null}
                 <a
                   href={paper.arxivUrl}
                   target="_blank"
@@ -74,13 +177,23 @@ export function OriginalPaperPanel({ paper, onBack, listControl }: OriginalPaper
       </header>
 
       <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-4 2xl:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)]">
-        <section className="neu-inset min-h-[28rem] overflow-hidden rounded-2xl">
+        <section ref={pdfContainerRef} className="neu-inset min-h-[28rem] overflow-hidden rounded-2xl">
           {paper.pdfUrl ? (
-            <iframe
-              title={`${paper.title} PDF`}
-              src={paper.pdfUrl}
-              className="h-[68vh] min-h-[28rem] w-full rounded-2xl bg-card 2xl:h-full"
-            />
+            <div className="h-[68vh] min-h-[28rem] w-full rounded-2xl bg-card 2xl:h-full">
+              {visiblePdfUrl ? (
+                <iframe
+                  title={`${paper.title} PDF`}
+                  src={visiblePdfUrl}
+                  loading="lazy"
+                  className="h-full w-full rounded-2xl bg-card"
+                />
+              ) : (
+                <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+                  <FileText className="h-8 w-8 text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">PDF 正在加载...</p>
+                </div>
+              )}
+            </div>
           ) : (
             <div className="flex h-full min-h-[28rem] flex-col items-center justify-center gap-3 p-6 text-center">
               <FileText className="h-8 w-8 text-muted-foreground" />
