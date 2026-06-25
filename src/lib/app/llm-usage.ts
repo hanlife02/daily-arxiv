@@ -3,13 +3,17 @@ import { and, eq, gte, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { llmCallLog, user } from "@/lib/db/schema";
 import { getAdminSettings } from "@/lib/app/settings";
-import { summarizeLlmUsage, type LlmModelCostRate } from "@/lib/app/llm-usage-summary";
+import { summarizeLlmUsage, type LlmUsageCostSettings } from "@/lib/app/llm-usage-summary";
 import { resolveManualLlmLimits, summarizeManualLlmQuota } from "@/lib/settings/limits";
 import { MANUAL_LLM_ENDPOINTS, type LlmEndpoint } from "@/lib/app/llm-endpoints";
 
 export { MANUAL_LLM_ENDPOINTS, isManualLlmEndpoint, type LlmEndpoint, type ManualLlmEndpoint } from "@/lib/app/llm-endpoints";
 
 const manualLlmEndpointList: LlmEndpoint[] = [...MANUAL_LLM_ENDPOINTS];
+const defaultLlmCostSettings: LlmUsageCostSettings = {
+  charsPerToken: 4,
+  rates: {}
+};
 
 export async function startLlmCall(input: {
   userId?: string;
@@ -122,41 +126,6 @@ export async function assertManualLlmAllowed(userId: string) {
   }
 }
 
-function parseLlmCostRatesFromEnv(): Record<string, LlmModelCostRate> {
-  const raw = process.env.LLM_COST_RATES_JSON?.trim();
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw) as Record<string, {
-      promptUsdPerMillionTokens?: number;
-      completionUsdPerMillionTokens?: number;
-      inputUsdPerMillionTokens?: number;
-      outputUsdPerMillionTokens?: number;
-    }>;
-    return Object.fromEntries(
-      Object.entries(parsed)
-        .map(([model, rate]) => {
-          const prompt = Number(rate.promptUsdPerMillionTokens ?? rate.inputUsdPerMillionTokens);
-          const completion = Number(rate.completionUsdPerMillionTokens ?? rate.outputUsdPerMillionTokens);
-          if (!model || !Number.isFinite(prompt) || !Number.isFinite(completion) || prompt < 0 || completion < 0) {
-            return undefined;
-          }
-          return [model, {
-            promptUsdPerMillionTokens: prompt,
-            completionUsdPerMillionTokens: completion
-          }] as const;
-        })
-        .filter((item): item is readonly [string, LlmModelCostRate] => Boolean(item))
-    );
-  } catch {
-    return {};
-  }
-}
-
-function llmCostCharsPerTokenFromEnv() {
-  const parsed = Number(process.env.LLM_COST_CHARS_PER_TOKEN);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 4;
-}
-
 export async function getLlmUsageSummary(now = new Date()) {
   const since = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
   const rows = await db.query.llmCallLog.findMany({
@@ -176,9 +145,6 @@ export async function getLlmUsageSummary(now = new Date()) {
     trendDays: 90,
     insightDays: 90,
     userLabels,
-    costSettings: {
-      charsPerToken: llmCostCharsPerTokenFromEnv(),
-      rates: parseLlmCostRatesFromEnv()
-    }
+    costSettings: defaultLlmCostSettings
   });
 }

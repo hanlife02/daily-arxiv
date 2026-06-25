@@ -6,7 +6,6 @@ import { isDueSendTime, localHourMinute } from "@/lib/jobs/schedule";
 import { explainScore, rankPapers } from "@/lib/reports/scoring";
 import { generateDailyReport } from "@/lib/reports/generate";
 import { classifyJobFailureReason, summarizeJobFailures } from "@/lib/app/job-health";
-import { summarizeIncidentHistoryLog } from "@/lib/app/incident-history";
 import { summarizeOperationalIncidents } from "@/lib/app/incident-summary";
 import { buildJobLogPagination, jobLogPageHref, parseJobLogBrowserFilters } from "@/lib/app/job-log-browser";
 import { buildLogTimeline, extractLogCorrelationKeys, hasLogCorrelationKeys, summarizeLogRootCause } from "@/lib/app/log-correlation";
@@ -17,7 +16,6 @@ import {
   summarizeOldestFailedJob,
   summarizeQueueBacklogJobs
 } from "@/lib/app/queue-health";
-import { buildQueueHealthLog, summarizeQueueHealthTrend } from "@/lib/app/queue-health-log";
 import { readSchedulerHeartbeat, readWorkerHeartbeat, writeSchedulerHeartbeat, writeWorkerHeartbeat } from "@/lib/app/worker-health";
 import { paper } from "./helpers";
 
@@ -160,7 +158,7 @@ describe("job failure aggregation", () => {
 });
 
 describe("operational incident summary", () => {
-  it("combines health, job, queue, and LLM diagnostics into prioritized incidents", () => {
+  it("combines health, job, and LLM diagnostics into prioritized incidents", () => {
     const incidents = summarizeOperationalIncidents({
       healthChecks: {
         postgres: { ok: false, message: "connection refused" },
@@ -185,21 +183,6 @@ describe("operational incident summary", () => {
           consecutiveFailures: 1
         }
       ],
-      queueTrend: {
-        points: [],
-        latest: {
-          createdAt: new Date("2026-06-18T12:05:00.000Z"),
-          observedAt: "2026-06-18T12:05:00.000Z",
-          totalWaiting: 4,
-          totalActive: 1,
-          totalDelayed: 2,
-          totalFailed: 1,
-          totalWaitingChildren: 0,
-          totalBacklog: 6
-        },
-        backlogDelta: 3,
-        maxBacklog: 6
-      },
       llmFailureDiagnostics: [
         {
           category: "quota",
@@ -217,7 +200,6 @@ describe("operational incident summary", () => {
     expect(incidents.map((item) => item.key)).toEqual([
       "job:report-generation",
       "health:postgres",
-      "queue:backlog",
       "llm:quota"
     ]);
     expect(incidents[0]).toMatchObject({
@@ -226,33 +208,6 @@ describe("operational incident summary", () => {
       actionHint: expect.stringContaining("LLM")
     });
     expect(incidents.find((item) => item.key === "llm:quota")?.evidence).toContain("429");
-  });
-});
-
-describe("incident history snapshots", () => {
-  it("turns persisted health alert logs into review drafts", () => {
-    const snapshot = summarizeIncidentHistoryLog({
-      id: "log-1",
-      status: "succeeded",
-      message: "Sent health alert via email(1)",
-      createdAt: new Date("2026-06-18T12:00:00.000Z"),
-      metadata: {
-        fingerprint: "abc123",
-        items: [
-          "check:backup: no backups found",
-          "job:backup: failed 2/4, consecutive 2"
-        ],
-        email: { sent: true, sentCount: 1 },
-        webhook: { sent: false, reason: "webhook_not_configured" }
-      }
-    });
-
-    expect(snapshot.fingerprint).toBe("abc123");
-    expect(snapshot.items).toHaveLength(2);
-    expect(snapshot.deliverySummary).toBe("email sent(1) · webhook webhook_not_configured");
-    expect(snapshot.reviewDraft).toContain("# daily-arxiv 事件复盘草稿");
-    expect(snapshot.reviewDraft).toContain("check:backup: no backups found");
-    expect(snapshot.reviewDraft).toContain("目标环境日志片段");
   });
 });
 
@@ -529,60 +484,6 @@ describe("queue backlog summary", () => {
       count: 2,
       ids: ["report-1", "report-2"]
     });
-  });
-});
-
-describe("queue health trend", () => {
-  it("builds queue health snapshots and summarizes backlog changes", () => {
-    const first = buildQueueHealthLog([
-      {
-        name: "report-generation",
-        ok: true,
-        counts: {
-          waiting: 2,
-          active: 1,
-          delayed: 1,
-          failed: 0
-        }
-      }
-    ], new Date("2026-06-19T10:00:00.000Z"));
-    const second = buildQueueHealthLog([
-      {
-        name: "report-generation",
-        ok: true,
-        counts: {
-          waiting: 4,
-          active: 0,
-          delayed: 2,
-          failed: 1,
-          "waiting-children": 1
-        }
-      }
-    ], new Date("2026-06-19T10:30:00.000Z"));
-
-    expect(first).toMatchObject({
-      type: "queue-health",
-      status: "succeeded",
-      metadata: {
-        totalBacklog: 3,
-        totalActive: 1,
-        totalFailed: 0
-      }
-    });
-
-    const trend = summarizeQueueHealthTrend([
-      { metadata: second.metadata, createdAt: new Date("2026-06-19T10:30:00.000Z") },
-      { metadata: first.metadata, createdAt: new Date("2026-06-19T10:00:00.000Z") }
-    ]);
-
-    expect(trend.points.map((point) => point.observedAt)).toEqual([
-      "2026-06-19T10:00:00.000Z",
-      "2026-06-19T10:30:00.000Z"
-    ]);
-    expect(trend.latest?.totalBacklog).toBe(7);
-    expect(trend.latest?.totalFailed).toBe(1);
-    expect(trend.backlogDelta).toBe(4);
-    expect(trend.maxBacklog).toBe(7);
   });
 });
 

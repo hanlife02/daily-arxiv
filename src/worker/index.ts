@@ -7,14 +7,12 @@ import { getAdminSettings } from "@/lib/app/settings";
 import { createDatabaseBackup } from "@/lib/app/backups";
 import { applyDataRetention } from "@/lib/app/retention";
 import { enqueueEmailJob, runLoggedJob } from "@/lib/app/jobs";
-import { startQueueEventLogging } from "@/lib/app/queue-events";
 import { redisConnection } from "@/lib/jobs/queues";
 import { startSchedulers } from "@/worker/scheduler";
 import { startWorkerHeartbeat } from "@/lib/app/worker-health";
 
 await bootstrapApplication();
 const stopHeartbeat = startWorkerHeartbeat();
-const stopQueueEventLogging = startQueueEventLogging();
 
 const workers = [
   new Worker(
@@ -77,7 +75,6 @@ startSchedulers();
 
 process.on("SIGTERM", async () => {
   stopHeartbeat();
-  await stopQueueEventLogging();
   await Promise.all(workers.map((worker) => worker.close()));
   process.exit(0);
 });

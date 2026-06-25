@@ -37,8 +37,8 @@ const containerName = env.RESTORE_APP_SMOKE_CONTAINER_NAME ?? "daily-arxiv-resto
 const timeoutSeconds = Number(env.RESTORE_APP_SMOKE_TIMEOUT_SECONDS ?? 180);
 const adminEmail = env.ADMIN_EMAIL ?? "admin@example.com";
 const adminDomain = adminEmail.split("@")[1] ?? "example.com";
-const smokeUserEmail = env.RESTORE_APP_SMOKE_USER_EMAIL ?? env.DOCKER_BUSINESS_SMOKE_USER_EMAIL ?? `docker-smoke-user@${adminDomain}`;
-const smokeUserPassword = env.RESTORE_APP_SMOKE_USER_PASSWORD ?? env.DOCKER_BUSINESS_SMOKE_USER_PASSWORD ?? "docker-smoke-password";
+const smokeUserEmail = env.RESTORE_APP_SMOKE_USER_EMAIL ?? `docker-smoke-user@${adminDomain}`;
+const smokeUserPassword = env.RESTORE_APP_SMOKE_USER_PASSWORD ?? "docker-smoke-password";
 const generatedAt = new Date();
 const day = new Intl.DateTimeFormat("en-CA", {
   timeZone: env.RESTORE_APP_SMOKE_TIMEZONE ?? "Asia/Shanghai",

@@ -7,7 +7,6 @@ import { decideBatchReadiness } from "@/lib/reports/batch";
 import { getAdminSettings } from "@/lib/app/settings";
 import { isDueSendTime } from "@/lib/jobs/schedule";
 import { writeSchedulerHeartbeat, type SchedulerTickSummary } from "@/lib/app/worker-health";
-import { sendHealthAlertIfNeeded } from "@/lib/app/health-alerts";
 
 const DEFAULT_SCHEDULER_INTERVAL_MS = 5 * 60 * 1000;
 const DEFAULT_CRAWL_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -136,9 +135,6 @@ async function runObservedSchedulerTick(now = new Date(), schedulerState = state
       consecutiveFailures: 0,
       durationMs: finishedAt.getTime() - startedAt.getTime(),
       summary
-    });
-    await sendHealthAlertIfNeeded(finishedAt).catch((error) => {
-      console.error("daily-arxiv health alert failed", error);
     });
   } catch (error) {
     const finishedAt = new Date();

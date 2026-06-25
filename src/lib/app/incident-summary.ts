@@ -1,6 +1,5 @@
 import type { JobFailureReasonCategory } from "@/lib/app/job-health";
 import type { LlmFailureDiagnostic } from "@/lib/app/llm-usage-summary";
-import type { QueueHealthTrend } from "@/lib/app/queue-health-log";
 
 export type OperationalIncidentSeverity = "critical" | "warning" | "info";
 
@@ -33,7 +32,6 @@ type JobFailureIncidentInput = {
 export type OperationalIncidentInput = {
   healthChecks: Record<string, HealthCheckInput>;
   jobFailures: JobFailureIncidentInput[];
-  queueTrend: QueueHealthTrend;
   llmFailureDiagnostics: LlmFailureDiagnostic[];
 };
 
@@ -114,19 +112,6 @@ export function summarizeOperationalIncidents(input: OperationalIncidentInput, l
       evidence: `${failure.failedCount} 次失败，失败率 ${(failure.failureRate * 100).toFixed(0)}%，连续失败 ${failure.consecutiveFailures}${failure.lastMessage ? `；${trimEvidence(failure.lastMessage)}` : ""}`,
       actionHint: jobActionHint(failure.lastFailureCategory),
       updatedAt: failure.lastAt
-    });
-  }
-
-  const latestQueue = input.queueTrend.latest;
-  if (latestQueue && (latestQueue.totalBacklog > 0 || latestQueue.totalFailed > 0 || input.queueTrend.backlogDelta > 0)) {
-    incidents.push({
-      key: "queue:backlog",
-      severity: latestQueue.totalFailed > 0 || input.queueTrend.backlogDelta > 10 ? "warning" : "info",
-      title: "队列积压需要关注",
-      scope: "队列趋势",
-      evidence: `当前积压 ${latestQueue.totalBacklog}，较上次 ${input.queueTrend.backlogDelta >= 0 ? "+" : ""}${input.queueTrend.backlogDelta}，failed ${latestQueue.totalFailed}`,
-      actionHint: "查看队列详情中的最老待处理、长时间运行、最老失败和疑似重复任务。",
-      updatedAt: latestQueue.createdAt
     });
   }
 

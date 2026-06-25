@@ -5,17 +5,15 @@ import { getAdminSettings } from "@/lib/app/settings";
 import { listBackupFiles } from "@/lib/app/backups";
 import { getDataLifecycleSummary } from "@/lib/app/data-lifecycle";
 import { getSystemHealth } from "@/lib/app/health";
-import { INCIDENT_HISTORY_LOG_TYPE, summarizeIncidentHistoryLog } from "@/lib/app/incident-history";
 import { summarizeOperationalIncidents, type OperationalIncidentSeverity } from "@/lib/app/incident-summary";
 import { classifyJobFailureReason } from "@/lib/app/job-health";
 import { buildJobLogPagination, jobLogPageHref, parseJobLogBrowserFilters } from "@/lib/app/job-log-browser";
 import { buildLogTimeline, extractLogCorrelationKeys, hasLogCorrelationKeys, summarizeLogRootCause, type LogCorrelationKeys } from "@/lib/app/log-correlation";
 import { getLlmUsageSummary } from "@/lib/app/llm-usage";
-import { QUEUE_HEALTH_LOG_TYPE, summarizeQueueHealthTrend } from "@/lib/app/queue-health-log";
 import { db } from "@/lib/db";
 import { adminNotificationSmtpConfig, allowedEmailDomain, emailLog, jobLog, llmCallLog, paper, paperMetric, report, user } from "@/lib/db/schema";
 import { emailStatusLabel, jobFailureReasonLabel, jobStatusLabel, llmStatusLabel } from "@/lib/reports/status-labels";
-import { and, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
@@ -44,8 +42,7 @@ const JOB_LOG_TYPE_OPTIONS = [
   "report-generation",
   "email-notification",
   "backup",
-  "data-retention",
-  "health-alert"
+  "data-retention"
 ] as const;
 
 async function countRows(table: typeof user | typeof paper | typeof report) {
@@ -186,12 +183,6 @@ function formatBytes(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function formatUsd(value: number) {
-  if (value <= 0) return "$0";
-  if (value < 0.01) return `$${value.toFixed(6)}`;
-  return `$${value.toFixed(2)}`;
-}
-
 function incidentSeverityLabel(severity: OperationalIncidentSeverity) {
   if (severity === "critical") return "严重";
   if (severity === "warning") return "关注";
@@ -225,13 +216,12 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
   const params = await searchParams;
   const jobLogFilters = parseJobLogBrowserFilters(params ?? {});
   const jobLogWhere = and(
-    ne(jobLog.type, QUEUE_HEALTH_LOG_TYPE),
     jobLogFilters.status ? eq(jobLog.status, jobLogFilters.status) : undefined,
     jobLogFilters.type ? eq(jobLog.type, jobLogFilters.type) : undefined
   );
   const [jobLogTotalRow] = await db.select({ count: sql<number>`count(*)::int` }).from(jobLog).where(jobLogWhere);
   const jobLogPagination = buildJobLogPagination(jobLogTotalRow?.count ?? 0, jobLogFilters.page, jobLogFilters.pageSize);
-  const [settings, health, llmUsage, dataLifecycle, smtp, domains, jobs, incidentLogs, queueHealthLogs, emails, llmLogs, users, userCount, paperCount, reportCount, s2MissingCount] = await Promise.all([
+  const [settings, health, llmUsage, dataLifecycle, smtp, domains, jobs, emails, llmLogs, users, userCount, paperCount, reportCount, s2MissingCount] = await Promise.all([
     getAdminSettings(),
     getSystemHealth(),
     getLlmUsageSummary(),
@@ -244,8 +234,6 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
       limit: jobLogPagination.pageSize,
       offset: (jobLogPagination.page - 1) * jobLogPagination.pageSize
     }),
-    db.query.jobLog.findMany({ where: eq(jobLog.type, INCIDENT_HISTORY_LOG_TYPE), orderBy: desc(jobLog.createdAt), limit: 5 }),
-    db.query.jobLog.findMany({ where: eq(jobLog.type, QUEUE_HEALTH_LOG_TYPE), orderBy: desc(jobLog.createdAt), limit: 12 }),
     db.query.emailLog.findMany({ orderBy: desc(emailLog.createdAt), limit: 6 }),
     db.query.llmCallLog.findMany({ orderBy: desc(llmCallLog.createdAt), limit: 6 }),
     db.query.user.findMany({ orderBy: desc(user.createdAt), limit: 20 }),
@@ -255,16 +243,12 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
     db.select({ count: sql<number>`count(*)::int` }).from(paperMetric).where(eq(paperMetric.s2Status, "missing")).then(([row]) => row?.count ?? 0)
   ]);
   const backups = listBackupFiles(6);
-  const queueHealthTrend = summarizeQueueHealthTrend(queueHealthLogs);
-  const queueTrendMaxBacklog = Math.max(1, queueHealthTrend.maxBacklog);
   const llmTrendMaxCalls = Math.max(1, ...llmUsage.trend.map((point) => point.calls));
   const operationalIncidents = summarizeOperationalIncidents({
     healthChecks: health.checks,
     jobFailures: health.jobFailures,
-    queueTrend: queueHealthTrend,
     llmFailureDiagnostics: llmUsage.insights.failureDiagnostics
   });
-  const incidentHistory = incidentLogs.map(summarizeIncidentHistoryLog);
   const jobCorrelationKeys = new Map(jobs.map((log) => [log.id, extractLogCorrelationKeys(log.metadata)]));
   const allCorrelationKeys = collectCorrelationKeys([...jobCorrelationKeys.values()]);
   const [relatedEmails, relatedLlmCalls] = await Promise.all([
@@ -395,33 +379,6 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
                 </div>
               ))}
             </div>
-            <div className="neu-inset rounded-xl px-4 py-3 text-sm">
-              <div className="flex items-center justify-between gap-3">
-                <span>队列积压趋势</span>
-                <span className="text-muted-foreground">
-                  {queueHealthTrend.latest ? new Date(queueHealthTrend.latest.observedAt).toLocaleString("zh-CN") : "暂无样本"}
-                </span>
-              </div>
-              {queueHealthTrend.latest ? (
-                <>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    当前积压 {queueHealthTrend.latest.totalBacklog} · 较上次 {queueHealthTrend.backlogDelta >= 0 ? "+" : ""}{queueHealthTrend.backlogDelta} · active {queueHealthTrend.latest.totalActive} · failed {queueHealthTrend.latest.totalFailed}
-                  </p>
-                  <div className="mt-3 flex h-12 items-end gap-1">
-                    {queueHealthTrend.points.map((point) => (
-                      <div
-                        key={point.observedAt}
-                        className={`w-full min-w-2 rounded-t ${point.totalFailed > 0 ? "bg-red-500/70" : "bg-primary/70"}`}
-                        style={{ height: `${Math.max(10, Math.round((point.totalBacklog / queueTrendMaxBacklog) * 48))}px` }}
-                        title={`${new Date(point.observedAt).toLocaleString("zh-CN")} · backlog ${point.totalBacklog} · failed ${point.totalFailed}`}
-                      />
-                    ))}
-                  </div>
-                </>
-              ) : (
-                <p className="mt-1 text-xs text-muted-foreground">scheduler 记录第一条队列健康快照后会显示趋势。</p>
-              )}
-            </div>
           </CardContent>
         </Card>
         <Card>
@@ -527,54 +484,11 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
             </div>
           ))}
           {operationalIncidents.length === 0 ? (
-            <p className="text-muted-foreground md:col-span-2">当前没有健康、任务、队列或 LLM 失败事件需要关注。</p>
+            <p className="text-muted-foreground md:col-span-2">当前没有健康、任务或 LLM 失败事件需要关注。</p>
           ) : null}
           <p className="text-xs text-muted-foreground md:col-span-2">
-            事件摘要来自当前健康检查、任务失败聚合、队列趋势和 LLM 失败诊断；生产复盘仍应结合目标环境日志和证据 artifact。
+            事件摘要来自当前健康检查、任务失败聚合和 LLM 失败诊断；生产复盘仍应结合目标环境日志和证据 artifact。
           </p>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle>事件复盘快照</CardTitle>
-          <p className="mt-1 text-sm text-muted-foreground">来自 scheduler 持久化的健康告警日志，可作为 incident 复盘起点。</p>
-        </CardHeader>
-        <CardContent className="grid gap-2 text-sm">
-          {incidentHistory.map((snapshot) => (
-            <div key={snapshot.id} className="neu-inset rounded-xl px-4 py-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <p className="font-medium">{snapshot.createdAt.toLocaleString("zh-CN")}</p>
-                  <p className="mt-0.5 break-all text-xs text-muted-foreground">指纹：{snapshot.fingerprint}</p>
-                </div>
-                <span className="rounded-full border border-border/70 px-2 py-0.5 text-xs text-muted-foreground">
-                  {jobStatusLabel(snapshot.status)}
-                </span>
-              </div>
-              <p className="mt-2 text-xs text-muted-foreground">
-                告警项 {snapshot.items.length} · {snapshot.deliverySummary}
-              </p>
-              {snapshot.message ? (
-                <p className="mt-1 break-all text-xs text-muted-foreground">{snapshot.message}</p>
-              ) : null}
-              {snapshot.items.length > 0 ? (
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
-                  {snapshot.items.slice(0, 4).map((item) => (
-                    <li key={item} className="break-all">{item}</li>
-                  ))}
-                </ul>
-              ) : null}
-              <details className="mt-2 text-xs text-muted-foreground">
-                <summary className="cursor-pointer">查看复盘草稿</summary>
-                <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-background/60 p-3 font-mono text-[11px]">
-                  {snapshot.reviewDraft}
-                </pre>
-              </details>
-            </div>
-          ))}
-          {incidentHistory.length === 0 ? (
-            <p className="text-muted-foreground">暂无持久化健康告警。scheduler 触发健康告警后会在这里留下复盘快照。</p>
-          ) : null}
         </CardContent>
       </Card>
       <Card>
@@ -866,7 +780,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
                     调用 {window.calls} · prompt {formatCompactNumber(window.promptChars)} · completion {formatCompactNumber(window.completionChars)} · PDF {window.pdfCalls}
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    估算成本 {formatUsd(window.estimatedCostUsd)} · tokens {formatCompactNumber(window.estimatedPromptTokens + window.estimatedCompletionTokens)} · 实测 {window.measuredTokenCalls}/{window.calls}
+                    tokens {formatCompactNumber(window.estimatedPromptTokens + window.estimatedCompletionTokens)} · 实测 {window.measuredTokenCalls}/{window.calls}
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     endpoint {window.byEndpoint.slice(0, 3).map((item) => `${item.label}:${item.calls}`).join(" / ") || "无"}
@@ -884,7 +798,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
               <div className="flex items-center justify-between gap-3">
                 <span>{llmUsage.trend.length} 天每日趋势</span>
                 <span className="text-xs text-muted-foreground">
-                  合计 {llmUsage.trend.reduce((total, point) => total + point.calls, 0)} 次 · {formatUsd(llmUsage.trend.reduce((total, point) => total + point.estimatedCostUsd, 0))}
+                  合计 {llmUsage.trend.reduce((total, point) => total + point.calls, 0)} 次
                 </span>
               </div>
               <div className="mt-3 overflow-x-auto">
@@ -895,7 +809,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
                       <div key={point.day} className="flex min-w-0 flex-1 flex-col items-center gap-1">
                         <div
                           className="flex h-24 w-full items-end rounded-lg bg-muted/45 px-1 py-1"
-                          title={`${point.day}: 调用 ${point.calls}, 成本 ${formatUsd(point.estimatedCostUsd)}, 失败率 ${(point.failureRate * 100).toFixed(0)}%, 平均耗时 ${formatDurationMs(point.averageDurationMs)}`}
+                          title={`${point.day}: 调用 ${point.calls}, 失败率 ${(point.failureRate * 100).toFixed(0)}%, 平均耗时 ${formatDurationMs(point.averageDurationMs)}`}
                         >
                           <div
                             className={point.failureRate > 0.1 ? "w-full rounded-md bg-red-500/80" : "w-full rounded-md bg-foreground/75"}
@@ -910,14 +824,8 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
                 </div>
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
-                红色表示当天失败率超过 10%；悬停可查看估算成本、失败率和平均耗时。成本优先使用供应商 usage token，缺失时按 `LLM_COST_RATES_JSON` 与约 {llmUsage.costEstimate.charsPerToken} chars/token 估算
-                {llmUsage.costEstimate.configured ? `，已配置 ${llmUsage.costEstimate.pricedModels.length} 个模型价格` : "，当前未配置模型价格"}。
+                红色表示当天失败率超过 10%；悬停可查看估算 token、失败率和平均耗时。token 优先使用供应商 usage，缺失时按约 {llmUsage.costEstimate.charsPerToken} chars/token 估算。
               </p>
-              {llmUsage.costEstimate.unpricedModels.length > 0 ? (
-                <p className="mt-1 break-all text-xs text-muted-foreground">
-                  未配置价格模型：{llmUsage.costEstimate.unpricedModels.join(" / ")}
-                </p>
-              ) : null}
             </div>
             <div className="grid gap-2 md:grid-cols-3">
               <div className="neu-inset rounded-xl px-4 py-3">
@@ -947,7 +855,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
                 <div className="mt-2 space-y-1 text-xs text-muted-foreground">
                   {llmUsage.insights.highUsageUsers.map((item) => (
                     <p key={item.key} className="break-all">
-                      {item.label} · {formatCompactNumber(item.totalChars)} chars · {formatUsd(item.estimatedCostUsd)} · {item.calls} 次
+                      {item.label} · {formatCompactNumber(item.totalChars)} chars · {item.calls} 次
                     </p>
                   ))}
                   {llmUsage.insights.highUsageUsers.length === 0 ? <p>暂无消耗数据。</p> : null}
